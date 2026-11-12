@@ -7,7 +7,15 @@
   bubble reaches WB, so `cycles = retired+stalls+flushes+4` holds for every program (incl. faults:
   the faulting cycle is not counted). `tests/sample3_hazards.s` reconstructed to hit 18/44/19/3.
 - No further material is coming: Labs 3–5 are built entirely from the sheets (decision 2026-11-12).
-- Next: Lab 3 (copy lab2 → lab3).
+- **Lab 3: DONE** (`lab3/`, tag `lab3-done`). Plug-in hazard unit (`pipeline/hazard.[ch]`,
+  `--hazard forward|stall`, default forward). Forward: EX/MEM + MEM/WB → EX, 1 stall on load-use
+  (rs1 or rs2, incl. store data). Stall: interlock on ID/EX and EX/MEM (register file is
+  write-before-read). Fetch always pc+4; taken branch / jal / jalr squash 2 → `cycles =
+  retired + 4 + 2×redirects + stalls` holds on every run. `--batch` = pipeline,
+  `--single-cycle` = oracle, `--pipeline` kept as alias, `--trace` matches the Lab 4 sheet format.
+  Rebuilt `tests/t1..t4` hit the Lab 4 "Lab 2" column exactly: 59 / 78 / 84 / 344, and t1
+  forwards = 12. `lab3/compare.sh` = oracle diff under both hazard units.
+- Next: Lab 4 (copy lab3 → lab4): IF pre-decode, jal free, predictor plug-in.
 
 Evaluation: **Nov 16–19 2026**, group of 2, no makeup.
 Marks: **4 labs × 5 hidden test cases = 20**. Graders will run their own `.s` programs
