@@ -1,6 +1,8 @@
 CC      := gcc
 CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
-           -Icore -Iisa -Iassembler -Iui -Ipipeline
+           -Icore -Iisa -Iassembler -Iui -Ipipeline \
+           -MMD -MP   # .d files: rebuild objects when a header they include changes
+CFLAGS  += $(EXTRA_CFLAGS)   # e.g. make EXTRA_CFLAGS=-Werror
 LDFLAGS :=
 
 BIN := rvsim
@@ -39,13 +41,13 @@ run: $(BIN)
 memcheck: $(BIN)
 	valgrind --error-exitcode=1 --leak-check=full ./$(BIN) $(PROG) --batch
 
-# Runs every .s file under tests/ in batch mode, just to smoke-test the build.
+# Diffs every program in tests/ against the single-cycle oracle and checks
+# the cycle identity.
 test: $(BIN)
-	@for f in tests/*.s; do \
-		echo "=== $$f ==="; \
-		./$(BIN) "$$f" --batch || exit 1; \
-		echo; \
-	done
+	./compare.sh
 
 clean:
-	rm -f $(OBJS) $(BIN)
+	rm -f $(OBJS) $(OBJS:.o=.d) $(BIN)
+
+# Header dependencies (after every target, so 'all' stays the default goal).
+-include $(OBJS:.o=.d)

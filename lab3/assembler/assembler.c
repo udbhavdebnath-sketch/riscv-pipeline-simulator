@@ -146,8 +146,17 @@ static int parse_value(const char *token, SymbolTable *st, uint32_t addr,
     return ASM_OK;
 }
 
+/* Register names are case-insensitive ("T0" == "t0"); labels are not. */
+static void lower_copy(char *dst, const char *src, size_t n) {
+    size_t i = 0;
+    for (; src[i] && i + 1 < n; i++) dst[i] = (char)tolower((unsigned char)src[i]);
+    dst[i] = '\0';
+}
+
 static int parse_register(const char *token, uint32_t *out, AsmError *err, int lineno) {
-    int idx = cpu_reg_index_from_name(token);
+    char name[16];
+    lower_copy(name, token, sizeof(name));
+    int idx = cpu_reg_index_from_name(name);
     if (idx < 0) return set_err(err, lineno, ASM_ERR_BAD_OPERAND, "'%s' is not a valid register name", token);
     *out = (uint32_t)idx;
     return ASM_OK;
@@ -398,6 +407,7 @@ static const Alias aliases[] = {
     {"sgtz",     2, "slt",      "%0, zero, %1"},
     {"jr",       1, "jalr",     "zero, 0(%0)"},
     {"jalr",     1, "jalr",     "ra, 0(%0)"},
+    {"jalr",     3, "jalr",     "%0, %2(%1)"},
     {"jal",      1, "jal",      "ra, %0"},
     {"call",     1, "jal",      "ra, %0"},
     {"tail",     1, "jal",      "zero, %0"},
@@ -517,6 +527,14 @@ AsmStatus assemble_file(const char *filename, Memory *mem, uint32_t *out_entry_p
             if (addr % (uint32_t)n != 0) addr += (uint32_t)n - (addr % (uint32_t)n);
             continue;
         }
+        if (strcmp(mnemonic, ".space") == 0 || strcmp(mnemonic, ".zero") == 0) {
+            char *endptr; long n = strtol(operands, &endptr, 0);
+            if (endptr == operands || n < 0) {
+                return (AsmStatus)set_err(err, lines[i].lineno, ASM_ERR_SYNTAX, "%s expects a byte count", mnemonic);
+            }
+            addr += (uint32_t)n;
+            continue;
+        }
         if (is_pseudo_directive(mnemonic)) continue;
 
         int elem_size = directive_element_size(mnemonic);
@@ -553,6 +571,10 @@ AsmStatus assemble_file(const char *filename, Memory *mem, uint32_t *out_entry_p
         if (strcmp(mnemonic, ".align") == 0) {
             long n = strtol(operands, NULL, 0);
             if (addr % (uint32_t)n != 0) addr += (uint32_t)n - (addr % (uint32_t)n);
+            continue;
+        }
+        if (strcmp(mnemonic, ".space") == 0 || strcmp(mnemonic, ".zero") == 0) {
+            addr += (uint32_t)strtol(operands, NULL, 0);   /* memory starts zeroed */
             continue;
         }
         if (is_pseudo_directive(mnemonic)) continue;

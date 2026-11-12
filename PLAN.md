@@ -70,6 +70,18 @@
   the 8 questions). Raw `--batch` outputs in `reports/lab4_outputs/` and `reports/lab5_outputs/`.
   Check the Q7 spec quote against your copy of the RISC-V Unprivileged ISA before submitting.
 
+- **Final verification round (demo readiness): DONE.**
+  - Independent references: `tests/fpref.py` (exact-rational IEEE binary32 model of all 22 FP
+    operations × 5 modes, flags included; targeted ties, FLT_MIN boundary, exact cancellation) and
+    `tests/intref.py` (RV32I/M vs Python arithmetic). Found and fixed one real issue: UF on
+    Arm for results rounding up to FLT_MIN. Both references verified by planted bugs.
+  - Assembler hardening (all labs): case-insensitive register names, GNU 3-operand `jalr`,
+    `.space`/`.zero`; tabs, CRLF, `//` comments, stacked labels, negative hex, `(reg)` checked.
+  - `tests/demo/`: classic programs with independently computed outputs, every lab × mode.
+  - Operator paths: REPL, `--trace`, `--max-cycles`, bad file/flag/unit/predictor names.
+  - Root `Makefile` (`make test` runs everything), `EXTRA_CFLAGS` hook, CI on Ubuntu gcc and
+    macOS clang with `-Werror`. Reports for Labs 2 and 3 added.
+
 ## Known limits / report notes
 - A jalr whose target is pc+4 is not redirected in Labs 4/5 (IF's pc+4 guess was right), so
   `redirects = mispredicts + jalr` becomes `<=` for such programs; the cycle identity still holds.
@@ -79,8 +91,9 @@
   Left as is: it is the handout's behaviour and the oracle shares it.
 - Lab 4 sheet's t1/2bit stats block says forwards = 12; we count 20 per forwarded operand
   (12 is what the not-taken run gives). Cycles and all other counters match.
-- Host is arm64: tininess for UF is detected by the host FPU; RISC-V detects after rounding.
-  Only differs for results that round up to exactly FLT_MIN.
+- Underflow tininess is detected after rounding, as RISC-V requires, on every host: when the
+  host raises UF for a result that rounded to exactly ±FLT_MIN, `fp_helpers.c` redoes the
+  operation scaled by 2^64 to decide (Arm hosts detect before rounding; x86 after).
 - Lab 3 "stall" interlock = ID/EX + EX/MEM (register file write-before-read). The 3-latch
   version (Lab 2's) gives t4 301 cycles vs the sheet's 261, so 2-latch is the closer reading.
 

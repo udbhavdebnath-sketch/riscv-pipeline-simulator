@@ -1,0 +1,17 @@
+name: build-and-test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]   # x86-64 gcc, arm64 clang
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build every lab warning-free
+        run: for d in lab2 lab3 lab4 lab5; do make -C $d -B EXTRA_CFLAGS=-Werror || exit 1; done
+      - name: Golden figures, oracle diffs, demos, references, random programs
+        run: make test

@@ -5,6 +5,7 @@ CC      := gcc
 CFLAGS  := -std=c11 -Wall -Wextra -Wno-missing-field-initializers -frounding-math -g -O0 \
            -Icore -Iisa -Iassembler -Iui -Ipipeline \
            -MMD -MP   # .d files: rebuild objects when a header they include changes
+CFLAGS  += $(EXTRA_CFLAGS)   # e.g. make EXTRA_CFLAGS=-Werror
 LDFLAGS := -lm
 
 BIN := rvsim

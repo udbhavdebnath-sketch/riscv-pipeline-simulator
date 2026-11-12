@@ -4,8 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#pragma STDC FENV_ACCESS ON
-
 float f_of(uint32_t b) { float f; memcpy(&f, &b, sizeof f); return f; }
 uint32_t bits_of(float f) { uint32_t b; memcpy(&b, &f, sizeof b); return b; }
 
@@ -81,6 +79,30 @@ static double exact_in_double(ArithOp op, float a, float b, float c) {
     return fetestexcept(FE_INEXACT) ? NAN : r;
 }
 
+/* RISC-V detects tininess after rounding: a result is tiny only if, rounded
+ * with an unbounded exponent, it is still below FLT_MIN. Hosts differ (Arm
+ * decides before rounding), and the two only disagree when the result rounds
+ * up to exactly FLT_MIN. Redo the operation scaled by 2^64 (exact, and far
+ * from the subnormal range) to round with full precision, then compare.
+ * ponytail: RMM is checked as RNE here; a tie exactly at that boundary is
+ * the only case it could misjudge. */
+static int tiny_after_rounding(ArithOp op, float a, float b, float c, int rm) {
+    const float S = 18446744073709551616.0f;          /* 2^64 */
+    volatile float x = a, y = b, z = c, r;
+    fesetround(host_mode(rm));
+    switch (op) {
+        case AR_ADD: r = x * S + y * S;        break;
+        case AR_SUB: r = x * S - y * S;        break;
+        case AR_MUL: r = x * (y * S);          break;
+        case AR_DIV: r = (x * S) / y;          break;
+        case AR_FMA: r = fmaf(x, y * S, z * S); break;
+        default:     r = 0.0f;                 break;   /* sqrt never lands on FLT_MIN */
+    }
+    fesetround(FE_TONEAREST);
+    if (isinf(r) || isnan(r)) return 1;                 /* scaling overflowed: keep the host's verdict */
+    return fabsf(r) < 0x1p-126f * S;
+}
+
 uint32_t fp_arith(ArithOp op, uint32_t A, uint32_t B, uint32_t C, int rm, uint32_t *flags) {
     volatile float a = f_of(A), b = f_of(B), c = f_of(C), r;
 
@@ -106,6 +128,8 @@ uint32_t fp_arith(ArithOp op, uint32_t A, uint32_t B, uint32_t C, int rm, uint32
     fesetround(FE_TONEAREST);
 
     float res = r;
+    if ((got & FFLAG_UF) && (bits_of(res) & 0x7fffffffu) == 0x00800000u && !tiny_after_rounding(op, a, b, c, rm))
+        got &= ~FFLAG_UF;                  /* rounded up to FLT_MIN: not tiny for RISC-V */
     if (rm == RM_RMM && (got & FFLAG_NX)) {
         double exact = exact_in_double(op, a, b, c);
         if (!isnan(exact)) res = rmm_fixup(exact, res, &got);

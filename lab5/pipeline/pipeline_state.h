@@ -43,7 +43,7 @@ typedef struct {
     int nfwd;                 /* operands forwarded in EX, counted at retire */
     int mispredict;           /* conditional branch whose guess was wrong    */
     uint32_t fcsr_before;     /* fcsr as EX found it, to undo if an older instruction stops the machine */
-    char msg[96];             /* fault text from a handler run in EX         */
+    char msg[128];            /* fault text from a handler run in EX         */
 } EXMEM;
 
 typedef struct {
@@ -52,7 +52,7 @@ typedef struct {
     uint32_t wb_val; uint32_t fault_addr;
     int nfwd;
     int mispredict;
-    char msg[96];
+    char msg[128];
 } MEMWB;
 
 struct HazardUnit;

@@ -1,0 +1,10 @@
+# program            expected stdout      labs
+fib.s                75025                all
+fact_rec.s           3628800              all
+bubble.s             1731                 all
+gcd_sub.s            21                   all
+collatz.s            111                  all
+bsearch.s            7-10                 all
+strcpy.s             131012               all
+matmul_m.s           671                  lab5
+pi_fp.s              3136592              lab5

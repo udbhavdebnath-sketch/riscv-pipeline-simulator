@@ -1,6 +1,8 @@
 CC      := gcc
 CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
-           -Icore -Iisa -Iassembler -Iui -Ipipeline
+           -Icore -Iisa -Iassembler -Iui -Ipipeline \
+           -MMD -MP   # .d files: rebuild objects when a header they include changes
+CFLAGS  += $(EXTRA_CFLAGS)   # e.g. make EXTRA_CFLAGS=-Werror
 LDFLAGS :=
 
 BIN := rvsim
@@ -48,4 +50,7 @@ test: $(BIN)
 	./compare.sh
 
 clean:
-	rm -f $(OBJS) $(BIN)
+	rm -f $(OBJS) $(OBJS:.o=.d) $(BIN)
+
+# Header dependencies (after every target, so 'all' stays the default goal).
+-include $(OBJS:.o=.d)
