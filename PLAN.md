@@ -64,6 +64,12 @@
     to pc+4, unknown ecall) and `tests/e_store_fault.s`: match in every lab.
   - Run everything: `./golden.sh` and `make test` in each lab; `python3 tests/fuzz.py lab5 200 --fp`.
 
+- **Step 3 — reports: DRAFTED.** `reports/lab4_report.md` (both tables, per-program/predictor
+  breakdown with the gap to the floor, the three key results, reset/aliasing decisions, gshare
+  design, the forwards=12 note) and `reports/lab5_report.md` (changed-files statement + answers to
+  the 8 questions). Raw `--batch` outputs in `reports/lab4_outputs/` and `reports/lab5_outputs/`.
+  Check the Q7 spec quote against your copy of the RISC-V Unprivileged ISA before submitting.
+
 ## Known limits / report notes
 - A jalr whose target is pc+4 is not redirected in Labs 4/5 (IF's pc+4 guess was right), so
   `redirects = mispredicts + jalr` becomes `<=` for such programs; the cycle identity still holds.

@@ -1,0 +1,25 @@
+assembled 'lab4/tests/t2_nested_loops.s' ok. entry point = 0x00000000
+
+---------------------------- registers ----------------------------
+x0 /zero=0x00000000  x8 /s0  =0x00000000  x16/a6  =0x00000000  x24/s8  =0x00000000  
+x1 /ra  =0x00000000  x9 /s1  =0x00000000  x17/a7  =0x0000000a  x25/s9  =0x00000000  
+x2 /sp  =0x00000000  x10/a0  =0x00000018  x18/s2  =0x00000000  x26/s10 =0x00000000  
+x3 /gp  =0x00000000  x11/a1  =0x00000000  x19/s3  =0x00000000  x27/s11 =0x00000000  
+x4 /tp  =0x00000000  x12/a2  =0x00000000  x20/s4  =0x00000000  x28/t3  =0x00000000  
+x5 /t0  =0x00000000  x13/a3  =0x00000000  x21/s5  =0x00000000  x29/t4  =0x00000000  
+x6 /t1  =0x00000000  x14/a4  =0x00000000  x22/s6  =0x00000000  x30/t5  =0x00000000  
+x7 /t2  =0x00000000  x15/a5  =0x00000000  x23/s7  =0x00000000  x31/t6  =0x00000000  
+pc = 0x00000034
+status = ECALL_EXIT   cycles = 76
+pipeline        = 5-stage, hazard unit 'forward', predictor '1bit'
+retired         = 52
+CPI             = 1.462
+stalls          = 0
+forwards        = 29
+branches        = 16        conditional branches executed
+mispredicts     = 10        ... of which the guess was wrong
+accuracy        = 37.5%
+jal             = 0         redirected in IF: free
+jalr            = 0         never predicted: 2 cycles each
+redirects       = 10        mispredicts + jalr
+squashed        = 20        instructions thrown away (2 per redirect)
