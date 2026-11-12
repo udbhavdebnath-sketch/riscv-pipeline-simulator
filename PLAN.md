@@ -1,5 +1,14 @@
 # RISC-V Simulator — Implementation Plan
 
+## Status
+- **Lab 2: DONE** (`lab2/`, tag `lab2-done`). All 3 rows of the W7 table match exactly
+  (108/40/11, 26/8/1, 44/19/3), 5×addi example = 9 cycles / CPI 1.80, registers + output match
+  the oracle on all samples and edge tests (`lab2/compare.sh`). Stalls/flushes are counted when the
+  bubble reaches WB, so `cycles = retired+stalls+flushes+4` holds for every program (incl. faults:
+  the faulting cycle is not counted). `tests/sample3_hazards.s` reconstructed to hit 18/44/19/3.
+- No further material is coming: Labs 3–5 are built entirely from the sheets (decision 2026-11-12).
+- Next: Lab 3 (copy lab2 → lab3).
+
 Evaluation: **Nov 16–19 2026**, group of 2, no makeup.
 Marks: **4 labs × 5 hidden test cases = 20**. Graders will run their own `.s` programs
 with each lab sheet's exact command lines and compare registers, printed output and
