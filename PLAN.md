@@ -50,7 +50,25 @@
   Regression: lab2 8/8, lab3 24/24, lab4 96/96, lab5 152/152 runs match the oracle; all
   reference tables unchanged.
 
+- **Step 2 — stress testing: DONE.**
+  - `tests/fuzz.py <lab> <n> [seed] [--fp]`: random, always-terminating programs (dependent ALU
+    chains, every load/store width, load-use incl. store data and FMA rs3, forward branches incl.
+    pseudo-branches, nested counted loops, call / jal / indirect jalr, prints, x0 writes; with
+    --fp: M ops, all 26 F instructions on special values, every rounding mode incl. frm changes,
+    flag CSRs). Each program goes through the lab's compare.sh (every hazard × predictor vs the
+    oracle). 500 programs per lab = 9,500 runs, 0 failures. Mutation check: dropping MEM/WB
+    forwarding (lab4) fails 17/30 programs, dropping IF_RS3_FP (lab5) fails 13/30.
+  - `golden.sh`: every published figure from the sheets (66 checks) — guards the timing policy,
+    which the fuzzer cannot see (a 2-latch Lab 2 interlock is still correct, just not the sheet's).
+  - `tests/e_control.s` (jump-to-jump, odd jalr target, jal x0, back-to-back taken branches, jalr
+    to pc+4, unknown ecall) and `tests/e_store_fault.s`: match in every lab.
+  - Run everything: `./golden.sh` and `make test` in each lab; `python3 tests/fuzz.py lab5 200 --fp`.
+
 ## Known limits / report notes
+- A jalr whose target is pc+4 is not redirected in Labs 4/5 (IF's pc+4 guess was right), so
+  `redirects = mispredicts + jalr` becomes `<=` for such programs; the cycle identity still holds.
+- Self-modifying code (a store into an instruction already fetched) would run the stale
+  instruction in the pipeline but not in the oracle. Not handled; no lab asks for it.
 - The base assembler silently truncates immediates that don't fit (e.g. `ori x, x, 0x4000`).
   Left as is: it is the handout's behaviour and the oracle shares it.
 - Lab 4 sheet's t1/2bit stats block says forwards = 12; we count 20 per forwarded operand

@@ -2,7 +2,7 @@
 # Diff the pipeline (every hazard unit x every predictor) against the
 # --single-cycle oracle: registers, program output, final status. Check
 #   cycles    = retired + 4 + 2 x redirects + stalls
-#   redirects = mispredicts + jalr
+#   redirects = mispredicts + jalr   (<=, see below)
 # on every run. Prints one line per program/hazard/predictor.
 fail=0
 [ $# -eq 0 ] && set -- tests/*.s
@@ -17,7 +17,9 @@ for f in "$@"; do
       cyc=$(echo "$got" | sed -n 's/.*cycles = //p')
       st="MATCH"; [ "$r" = "$g" ] && [ "$ro" = "$go" ] || st="MISMATCH"
       [ $(( $(v retired) + 4 + 2 * $(v redirects) + $(v stalls) )) = "$cyc" ] || st="$st CYCLE-IDENTITY-FAIL"
-      [ $(( $(v mispredicts) + $(v jalr) )) = "$(v redirects)" ] || st="$st REDIRECT-IDENTITY-FAIL"
+      # <= rather than =: a jalr whose target happens to be pc+4 was "guessed"
+      # right by IF and is not redirected (tests/e_control.s has one).
+      [ "$(v redirects)" -le $(( $(v mispredicts) + $(v jalr) )) ] || st="$st REDIRECT-IDENTITY-FAIL"
       [ "$st" = "MATCH" ] || fail=1
       printf '%-26s %-7s %-9s %s  cycles=%-4s stalls=%-3s fwd=%-3s br=%-3s mis=%-3s jal=%-3s jalr=%s\n' \
         "$(basename $f)" $h $p "$st" "$cyc" "$(v stalls)" "$(v forwards)" "$(v branches)" "$(v mispredicts)" "$(v jal)" "$(v jalr)"

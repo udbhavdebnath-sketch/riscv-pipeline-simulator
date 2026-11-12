@@ -6,3 +6,5 @@ rvsim
 *.pptx
 *.jpg
 *.d
+__pycache__/
+tests/fuzz_fail/
