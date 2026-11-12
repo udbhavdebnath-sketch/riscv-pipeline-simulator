@@ -1,0 +1,70 @@
+#ifndef CPU_STATE_H
+#define CPU_STATE_H
+
+#include <stdint.h>
+
+#define NUM_REGS 32
+
+/* fcsr layout: frm in bits 7:5, accrued exception flags in bits 4:0. */
+#define FFLAG_NX 0x01   /* inexact           */
+#define FFLAG_UF 0x02   /* underflow         */
+#define FFLAG_OF 0x04   /* overflow          */
+#define FFLAG_DZ 0x08   /* divide by zero    */
+#define FFLAG_NV 0x10   /* invalid operation */
+
+/* Overall machine status. This is the C substitute for exceptions:
+ * every layer of the simulator checks/sets this instead of throwing. */
+typedef enum {
+    CPU_RUNNING = 0,
+    CPU_HALTED,                 /* clean shutdown requested (e.g. ecall exit) */
+    CPU_ILLEGAL_INSTRUCTION,    /* decoder found no matching handler */
+    CPU_MEM_FAULT,              /* out-of-bounds memory access */
+    CPU_ECALL_EXIT              /* program executed the "exit" syscall */
+} CPUStatus;
+
+typedef struct {
+    uint32_t regs[NUM_REGS];    /* x0..x31. x0 is always read as 0 (enforced in accessors) */
+    uint32_t fregs[NUM_REGS];   /* f0..f31, raw IEEE-754 single bit patterns. f0 is ordinary */
+    uint32_t fcsr;              /* frm (7:5) | fflags (4:0) */
+    uint32_t pc;
+    uint32_t next_pc;           /* instruction handlers write here; executor commits it to pc */
+    CPUStatus status;
+    uint64_t cycle_count;
+
+    /* Diagnostics for the CLI when something goes wrong */
+    uint32_t fault_addr;
+    char fault_msg[128];
+} CPUState;
+
+void cpu_reset(CPUState *cpu, uint32_t start_pc);
+
+/* Always go through these two functions to touch registers -- this is the
+ * single place that enforces x0 == 0, and keeps that rule from being
+ * reimplemented (and potentially forgotten) in every instruction handler. */
+uint32_t cpu_read_reg(const CPUState *cpu, int idx);
+void cpu_write_reg(CPUState *cpu, int idx, uint32_t value);
+
+/* The f file holds bit patterns; a value becomes a float only inside one
+ * operation (via memcpy, see isa/fp_helpers.h). */
+uint32_t cpu_read_freg(const CPUState *cpu, int idx);
+void cpu_write_freg(CPUState *cpu, int idx, uint32_t value);
+
+/* Sticky OR of FFLAG_* bits into fcsr; hardware never clears them. */
+void cpu_raise_fflags(CPUState *cpu, uint32_t flags);
+
+/* The dynamic rounding mode, fcsr.frm. */
+int cpu_frm(const CPUState *cpu);
+
+/* ABI register names (zero, ra, sp, ... ) used by the assembler and the CLI */
+const char *cpu_reg_abi_name(int idx);
+
+/* Returns -1 if not a recognized register name (neither "xN" nor an ABI name) */
+int cpu_reg_index_from_name(const char *name);
+
+/* Same for the f file: "fN" or an ABI name (ft0, fs0, fa0, ...). */
+const char *cpu_freg_abi_name(int idx);
+int cpu_freg_index_from_name(const char *name);
+
+const char *cpu_status_str(CPUStatus status);
+
+#endif /* CPU_STATE_H */
