@@ -15,7 +15,15 @@
   `--single-cycle` = oracle, `--pipeline` kept as alias, `--trace` matches the Lab 4 sheet format.
   Rebuilt `tests/t1..t4` hit the Lab 4 "Lab 2" column exactly: 59 / 78 / 84 / 344, and t1
   forwards = 12. `lab3/compare.sh` = oracle diff under both hazard units.
-- Next: Lab 4 (copy lab3 → lab4): IF pre-decode, jal free, predictor plug-in.
+- **Lab 4: DONE** (`lab4/`, tag `lab4-done`). `branch_predictor.[ch]` (interface verbatim from
+  the sheet + `bp_find`), `bp_static.c` (not-taken, btfn), `bp_dynamic.c` (1bit, 2bit start=1).
+  IF pre-decodes via `decode_instruction`: cond. branch → `predict`, jal → free redirect, jalr →
+  pc+4. EX updates with the real outcome, redirects when real next ≠ `pred_next`.
+  Both §9 tables reproduced cell-for-cell (cycles + mispredicts, all 16), trace cycles 7/8/11/12/13
+  identical to the sheet, stats block identical except `forwards` (we get 20 for t1/2bit; the
+  sheet's 12 is the not-taken value — we count each forwarded operand). `make test` = 56 runs
+  (7 programs × 2 hazard × 4 predictors) all match the oracle, both identities hold.
+- Next: Lab 5 (copy lab4 → lab5): FP infrastructure, then rv32f.c.
 
 Evaluation: **Nov 16–19 2026**, group of 2, no makeup.
 Marks: **4 labs × 5 hidden test cases = 20**. Graders will run their own `.s` programs

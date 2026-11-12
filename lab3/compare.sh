@@ -2,7 +2,8 @@
 # Diff the pipeline (every hazard unit) against the --single-cycle oracle:
 # registers, program output and final status; check
 # cycles = retired + 4 + 2 x redirects + stalls on every run.
-for f in "${@:-tests/*.s}"; do
+[ $# -eq 0 ] && set -- tests/*.s
+for f in "$@"; do
   ref=$(./rvsim "$f" --batch --single-cycle 2>&1)
   r=$(echo "$ref" | grep -E '^x|^status' | sed 's/cycles.*//'); ro=$(echo "$ref" | sed -n '2p')
   for h in forward stall; do
