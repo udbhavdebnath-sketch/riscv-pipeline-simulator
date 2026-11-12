@@ -44,7 +44,15 @@
   t2 217 vs 167, t3 80 vs 85, t4 248 vs 261.
   Makefile: `-MMD -MP` header deps (macOS make has 1-second timestamps: use `make -B` after quick edits).
 
+- **Assembler backport (step 1 after Lab 5): DONE.** Labs 2–4 assemblers now accept `la` and the
+  RV32I pseudo-ops (beqz bnez blez bgez bltz bgtz bgt ble bgtu bleu neg not seqz snez sltz sgtz
+  jr call tail, 1-operand jal/jalr), same table as Lab 5. `tests/e_pseudo.s` checks all 20.
+  Regression: lab2 8/8, lab3 24/24, lab4 96/96, lab5 152/152 runs match the oracle; all
+  reference tables unchanged.
+
 ## Known limits / report notes
+- The base assembler silently truncates immediates that don't fit (e.g. `ori x, x, 0x4000`).
+  Left as is: it is the handout's behaviour and the oracle shares it.
 - Lab 4 sheet's t1/2bit stats block says forwards = 12; we count 20 per forwarded operand
   (12 is what the not-taken run gives). Cycles and all other counters match.
 - Host is arm64: tininess for UF is detected by the host FPU; RISC-V detects after rounding.

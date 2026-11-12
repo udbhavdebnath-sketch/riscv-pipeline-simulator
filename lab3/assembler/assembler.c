@@ -298,7 +298,7 @@ static uint32_t encode_instruction(const InstructionHandler *h, Fields f) {
  * emitting a redundant lui for small constants. */
 
 static int pseudo_instruction_size(const char *mnemonic) {
-    if (strcmp(mnemonic, "li") == 0) return 8;
+    if (strcmp(mnemonic, "li") == 0 || strcmp(mnemonic, "la") == 0) return 8;
     if (strcmp(mnemonic, "nop") == 0) return 4;
     if (strcmp(mnemonic, "ret") == 0) return 4;
     if (strcmp(mnemonic, "j") == 0) return 4;
@@ -353,8 +353,8 @@ static int assemble_pseudo(const char *mnemonic, char *operand_str, SymbolTable 
         memory_write_word(mem, addr, encode_instruction(h, f));
         return ASM_OK;
     }
-    if (strcmp(mnemonic, "li") == 0) {
-        if (n != 2) return set_err(err, lineno, ASM_ERR_SYNTAX, "expected 'li rd, imm'");
+    if (strcmp(mnemonic, "li") == 0 || strcmp(mnemonic, "la") == 0) {
+        if (n != 2) return set_err(err, lineno, ASM_ERR_SYNTAX, "expected '%s rd, value'", mnemonic);
         uint32_t rd;
         if (parse_register(tok[0], &rd, err, lineno) != ASM_OK) return ASM_ERR_BAD_OPERAND;
         int32_t value;
@@ -373,6 +373,59 @@ static int assemble_pseudo(const char *mnemonic, char *operand_str, SymbolTable 
         return ASM_OK;
     }
     return set_err(err, lineno, ASM_ERR_UNKNOWN_MNEMONIC, "unknown pseudo-instruction '%s'", mnemonic);
+}
+
+/* One-for-one aliases: rewrite the line into a real instruction before
+ * either pass looks at it. %0 %1 %2 are the alias's operands. */
+typedef struct { const char *alias; int nops; const char *mn; const char *ops; } Alias;
+
+static const Alias aliases[] = {
+    {"beqz",     2, "beq",      "%0, zero, %1"},
+    {"bnez",     2, "bne",      "%0, zero, %1"},
+    {"blez",     2, "bge",      "zero, %0, %1"},
+    {"bgez",     2, "bge",      "%0, zero, %1"},
+    {"bltz",     2, "blt",      "%0, zero, %1"},
+    {"bgtz",     2, "blt",      "zero, %0, %1"},
+    {"bgt",      3, "blt",      "%1, %0, %2"},
+    {"ble",      3, "bge",      "%1, %0, %2"},
+    {"bgtu",     3, "bltu",     "%1, %0, %2"},
+    {"bleu",     3, "bgeu",     "%1, %0, %2"},
+    {"neg",      2, "sub",      "%0, zero, %1"},
+    {"not",      2, "xori",     "%0, %1, -1"},
+    {"seqz",     2, "sltiu",    "%0, %1, 1"},
+    {"snez",     2, "sltu",     "%0, zero, %1"},
+    {"sltz",     2, "slt",      "%0, %1, zero"},
+    {"sgtz",     2, "slt",      "%0, zero, %1"},
+    {"jr",       1, "jalr",     "zero, 0(%0)"},
+    {"jalr",     1, "jalr",     "ra, 0(%0)"},
+    {"jal",      1, "jal",      "ra, %0"},
+    {"call",     1, "jal",      "ra, %0"},
+    {"tail",     1, "jal",      "zero, %0"},
+};
+
+/* Rewrites mnemonic/operands in place if they name an alias. */
+static void expand_alias(char *mnemonic, char *operands) {
+    char buf[256];
+    strncpy(buf, operands, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
+    char *tok[4];
+    int n = buf[0] ? split_commas(buf, tok, 4) : 0;
+    for (unsigned k = 0; k < sizeof(aliases) / sizeof(aliases[0]); k++) {
+        const Alias *a = &aliases[k];
+        if (a->nops != n || strcmp(a->alias, mnemonic) != 0) continue;
+        char out[256] = "";
+        for (const char *p = a->ops; *p; p++) {
+            if (p[0] == '%' && p[1] >= '0' && p[1] <= '2') {
+                strncat(out, tok[p[1] - '0'], sizeof(out) - strlen(out) - 1);
+                p++;
+            } else {
+                size_t len = strlen(out);
+                if (len + 1 < sizeof(out)) { out[len] = *p; out[len + 1] = '\0'; }
+            }
+        }
+        strcpy(mnemonic, a->mn);
+        strcpy(operands, out);
+        return;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -446,6 +499,7 @@ AsmStatus assemble_file(const char *filename, Memory *mem, uint32_t *out_entry_p
 
         char label[64], mnemonic[32], operands[256];
         tokenize_line(work, label, mnemonic, operands);
+        expand_alias(mnemonic, operands);
 
         if (label[0]) {
             if (symtab_add(&st, label, addr) != 0) {
@@ -491,6 +545,7 @@ AsmStatus assemble_file(const char *filename, Memory *mem, uint32_t *out_entry_p
 
         char label[64], mnemonic[32], operands[256];
         tokenize_line(work, label, mnemonic, operands);
+        expand_alias(mnemonic, operands);
         (void)label; /* already recorded in pass 1 */
 
         if (!mnemonic[0]) continue;
