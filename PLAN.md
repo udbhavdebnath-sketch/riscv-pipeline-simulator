@@ -23,7 +23,34 @@
   identical to the sheet, stats block identical except `forwards` (we get 20 for t1/2bit; the
   sheet's 12 is the not-taken value — we count each forwarded operand). `make test` = 56 runs
   (7 programs × 2 hazard × 4 predictors) all match the oracle, both identities hold.
-- Next: Lab 5 (copy lab4 → lab5): FP infrastructure, then rv32f.c.
+- **Lab 5: DONE** (`lab5/`, tag `lab5-done`). Wrote all the "given" infrastructure ourselves:
+  `fregs`/`fcsr` + accessors in `core/cpu_state`, `FMT_R2/R4/CSR` + `IF_*` flags +
+  `register_instruction_ex` + rs2-fixed matching in the registry/decoder, assembler support
+  (f registers, optional rm operand, R4/CSR encodings, `.float`, `la`, FP/CSR pseudo-ops and
+  common RV32I pseudo-ops: beqz/bnez/bgt/ble/call/tail/neg/not/seqz/...), `isa/fp_helpers.c`
+  (memcpy bit casts, resolve_rm, host_mode, fflags_of, d2f + RMM tie fix-up, fp_arith with
+  canonical NaN and the RISC-V inf×0 rule), `isa/zicsr.c`, `isa/rv32m.c`, and the student file
+  `isa/rv32f.c` (26 instructions). Pipeline: unified register numbers (x1–31 → 1–31,
+  f0–31 → 32–63) drive the hazard unit; extension instructions run their own handler in EX on a
+  scratch CPUState with forwarded operands; fcsr read/written in EX (and restored if an older
+  instruction stops the machine in WB). Batch dump now also prints f0–f31 and `fcsr`.
+  Verified: all 19 rows of the special-value appendix, the 10 fcvt rounding values (static and
+  dyn), the RMM 1+2^-24 tie, saturation/NV-only rules, reserved rm → precise ILLEGAL.
+  `make test` = 144 runs (18 programs × 2 hazard × 4 predictors) all match the oracle in x, f and
+  fcsr. Rebuilt FP tests hit the forward columns exactly (36/41/1, 109/113/0, 72/76/0,
+  133/159/14 + prints 12000014141000); t1 matches its whole row incl. forwards 11 and
+  stall-mode 56/16. Differences, all from our reconstructed programs' instruction order rather
+  than simulator policy: forwards t2 52 vs 47, t3 3 vs 7, t4 59 vs 61; stall-mode cycles
+  t2 217 vs 167, t3 80 vs 85, t4 248 vs 261.
+  Makefile: `-MMD -MP` header deps (macOS make has 1-second timestamps: use `make -B` after quick edits).
+
+## Known limits / report notes
+- Lab 4 sheet's t1/2bit stats block says forwards = 12; we count 20 per forwarded operand
+  (12 is what the not-taken run gives). Cycles and all other counters match.
+- Host is arm64: tininess for UF is detected by the host FPU; RISC-V detects after rounding.
+  Only differs for results that round up to exactly FLT_MIN.
+- Lab 3 "stall" interlock = ID/EX + EX/MEM (register file write-before-read). The 3-latch
+  version (Lab 2's) gives t4 301 cycles vs the sheet's 261, so 2-latch is the closer reading.
 
 Evaluation: **Nov 16–19 2026**, group of 2, no makeup.
 Marks: **4 labs × 5 hidden test cases = 20**. Graders will run their own `.s` programs

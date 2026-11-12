@@ -31,7 +31,6 @@ SRCS := \
 	main.c
 
 OBJS := $(SRCS:.c=.o)
--include $(OBJS:.o=.d)
 
 .PHONY: all clean run memcheck test
 
@@ -58,3 +57,6 @@ test: $(BIN)
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(BIN)
+
+# Header dependencies (after every target, so 'all' stays the default goal).
+-include $(OBJS:.o=.d)
