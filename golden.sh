@@ -22,11 +22,21 @@ for row in "sample1_sum_loop.s 108 40 11" "sample2_mem_and_branches.s 26 8 1" "s
   check lab2 $1 --pipeline cycles $2; check lab2 $1 --pipeline stalls $3; check lab2 $1 --pipeline flushes $4
 done
 
-# Lab 3: the "Lab 2" column of the Lab 4 sheet (forwarding, fetch pc+4, 2-cycle redirects)
-for row in "t1_counted_loop.s 59" "t2_nested_loops.s 78" "t3_alternating.s 84" "t4_calls.s 344"; do
-  set -- $row; check lab3 $1 --batch cycles $2
+# Lab 3 (Lab Sheet 3, section 9): stalling and forwarding, one summary line each
+# check3 <program> <mode flag> <key> <expected>
+check3() {
+  got=$(./lab3/rvsim "lab3/tests/$1" "$2" 2>/dev/null | grep '^pipeline: mode' | tr ' ' '\n' | sed -n "s/^$3=//p")
+  if [ "$got" = "$4" ]; then pass=$((pass+1)); else fail=$((fail+1)); echo "FAIL lab3 $1 $2: $3 = $got, sheet says $4"; fi
+}
+for row in "micro.s 15 6 0" "sample1_sum_loop.s 108 40 11" "sample2_mem_and_branches.s 26 8 1" "sample4_data_hazards.s 69 35 1"; do
+  set -- $row; check3 $1 --pipeline cycles $2; check3 $1 --pipeline stalls $3; check3 $1 --pipeline flushes $4
 done
-check lab3 t1_counted_loop.s --batch forwards 12
+for row in "micro.s 9 0 0 2 1" "sample1_sum_loop.s 68 0 11 13 11" "sample2_mem_and_branches.s 18 0 1 2 2" "sample4_data_hazards.s 36 2 1 9 7"; do
+  set -- $row; m=--pipeline-forward
+  check3 $1 $m cycles $2; check3 $1 $m stalls $3; check3 $1 $m flushes $4; check3 $1 $m fwd_ex $5; check3 $1 $m fwd_mem $6
+done
+check3 sample4_data_hazards.s --pipeline-forward load_use 2
+check lab3 sample4_data_hazards.s --pipeline-forward output 36
 
 # Lab 4 sheet section 9: cycles and mispredicts, every program x predictor
 for row in "t1_counted_loop.s 59 43 45 45 9 1 2 2" "t2_nested_loops.s 78 66 76 70 11 5 10 7" \

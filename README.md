@@ -7,14 +7,14 @@ extensions.
 
 Each lab lives in its own folder, a complete copy of the simulator as it stood
 at the end of that lab, because the lab sheets define different command-line
-behaviour (in Lab 2 `--batch` is the single-cycle machine; from Lab 3 on it is
-the pipeline and `--single-cycle` is the reference).
+behaviour (in Labs 2 and 3 `--batch` is the single-cycle machine; from Lab 4 on
+it is the pipeline and `--single-cycle` is the reference).
 
 | Folder | Lab | Adds |
 |---|---|---|
 | `lab2/` | Five-stage pipeline | IF/ID/EX/MEM/WB latches, control signals, precise exceptions, naive 3-latch stalling, branches resolved in EX (1-cycle flush) |
-| `lab3/` | Hazard unit + forwarding | pluggable `--hazard forward\|stall`, EX/MEM and MEM/WB forwarding, load-use stall, 2-cycle redirects, `--trace` |
-| `lab4/` | Branch prediction | IF pre-decode (`jal` free), pluggable `--predictor not-taken\|btfn\|1bit\|2bit` |
+| `lab3/` | Data hazards | `hazard_check()` / `forward_operands()`: `--pipeline` (stalling) vs `--pipeline-forward` (EX/MEM and MEM/WB forwarding, one load-use stall), forwarding statistics |
+| `lab4/` | Branch prediction | pluggable `--hazard forward\|stall`, 2-cycle redirects, IF pre-decode (`jal` free), pluggable `--predictor not-taken\|btfn\|1bit\|2bit` |
 | `lab5/` | Floating point | f registers and `fcsr`, RV32F (26 instructions, 5 rounding modes, IEEE flags), Zicsr, RV32M, FP-aware assembler |
 
 ## Build
@@ -33,7 +33,11 @@ make test       # runs every check below (about 30 s)
 ./lab2/rvsim prog.s --batch                 # single-cycle reference
 ./lab2/rvsim prog.s --pipeline [--trace]    # five-stage pipeline
 
-# Labs 3-5
+# Lab 3
+./lab3/rvsim prog.s --pipeline              # stalling only
+./lab3/rvsim prog.s --pipeline-forward      # forwarding + load-use detection
+
+# Labs 4-5
 ./lab5/rvsim prog.s --batch                 # pipeline: forwarding + 2-bit predictor
 ./lab5/rvsim prog.s --batch --single-cycle  # reference
 ./lab5/rvsim prog.s --batch --hazard stall --predictor btfn --trace
@@ -57,16 +61,17 @@ and friends. Register names are case-insensitive.
 
 | Check | What it proves |
 |---|---|
-| `golden.sh` | Every figure published in the lab sheets (66 checks: cycles, stalls, flushes, forwards, mispredicts per program and predictor) |
+| `golden.sh` | Every figure published in the lab sheets (95 checks: cycles, stalls, flushes, forwards, load-use stalls, mispredicts per program, mode and predictor) |
 | `labN/compare.sh` (`make test` in a lab) | Every program, under every hazard unit × predictor, leaves the same x/f registers, fcsr and output as the single-cycle reference, and `cycles = retired + 4 + 2·redirects + stalls` holds |
 | `tests/fuzz.py <lab> <n> [seed] [--fp]` | Random, always-terminating programs (dependence chains, load-use, all load/store widths, loops, calls, indirect jumps; with `--fp` all of M and F on special values and every rounding mode) through `compare.sh` |
 | `tests/fpref.py lab5 <n> [seed]` | RV32F results and fflags against an independent exact-rational IEEE model (ties, FLT_MIN boundary, signed-zero cancellation, NaNs) |
 | `tests/intref.py <lab> <n> [seed] [--m]` | RV32I/M semantics against Python arithmetic |
 | `tests/demo/run.sh` | Classic programs (Fibonacci, recursive factorial, bubble sort, GCD, Collatz, binary search, string copy, matrix multiply, π in float32) print the right answer in every lab and mode |
 
-Each generator was checked by planting known bugs (missing MEM/WB forwarding,
-missing FMA third-operand dependence, broken RMM tie-rounding, host-dependent
-underflow, wrong `sra`) and confirming it reports them.
+Each generator was checked by planting known bugs (swapped forwarding priority,
+missing load-use detection, missing MEM/WB forwarding, missing FMA third-operand
+dependence, broken RMM tie-rounding, host-dependent underflow, wrong `sra`) and
+confirming it reports them.
 
 CI (`.github/workflows/ci.yml`) builds every lab with `-Werror` and runs
 `make test` on Ubuntu (gcc, x86-64) and macOS (clang, arm64).

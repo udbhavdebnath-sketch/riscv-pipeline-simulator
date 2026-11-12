@@ -14,30 +14,24 @@
 #define PF_FETCH   2
 #define PF_MEM     3
 
-/* Why a latch is empty; counted when the bubble reaches WB so that
- * cycles = retired + stalls + flushes + 4 holds for every program. */
-#define BUB_FILL  0
-#define BUB_STALL 1
-#define BUB_FLUSH 2
-
 typedef struct {
     int valid; uint32_t pc; uint32_t raw; int fault;
 } IFID;
 
 typedef struct {
-    int valid; int bubble; uint32_t pc; int fault;
+    int valid; uint32_t pc; int fault;
     DecodedInstr instr; const InstructionHandler *handler; ControlSignals ctrl;
     uint32_t rs1_val, rs2_val;
 } IDEX;
 
 typedef struct {
-    int valid; int bubble; uint32_t pc; int fault;
+    int valid; uint32_t pc; int fault;
     DecodedInstr instr; const InstructionHandler *handler; ControlSignals ctrl;
     uint32_t alu_result; uint32_t store_val; uint32_t fault_addr;
 } EXMEM;
 
 typedef struct {
-    int valid; int bubble; uint32_t pc; int fault;
+    int valid; uint32_t pc; int fault;
     DecodedInstr instr; const InstructionHandler *handler; ControlSignals ctrl;
     uint32_t wb_val; uint32_t fault_addr;
 } MEMWB;

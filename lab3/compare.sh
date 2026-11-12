@@ -1,19 +1,22 @@
 #!/bin/sh
-# Diff the pipeline (every hazard unit) against the --single-cycle oracle:
-# registers, program output and final status; check
-# cycles = retired + 4 + 2 x redirects + stalls on every run.
+# Diff --pipeline (stalling) and --pipeline-forward against the --batch
+# single-cycle oracle: registers, program output, final status. Stalls and
+# flushes are counted when they happen, so one behind the final ecall never
+# reaches WB: cycles <= retired + stalls + flushes + 4, never above.
 [ $# -eq 0 ] && set -- tests/*.s
+fail=0
 for f in "$@"; do
-  ref=$(./rvsim "$f" --batch --single-cycle 2>&1)
+  ref=$(./rvsim "$f" --batch 2>&1)
   r=$(echo "$ref" | grep -E '^x|^status' | sed 's/cycles.*//'); ro=$(echo "$ref" | sed -n '2p')
-  for h in forward stall; do
-    got=$(./rvsim "$f" --batch --hazard $h 2>&1)
+  for m in --pipeline --pipeline-forward; do
+    got=$(./rvsim "$f" $m 2>&1)
     g=$(echo "$got" | grep -E '^x|^status' | sed 's/cycles.*//'); go=$(echo "$got" | sed -n '2p')
-    v() { echo "$got" | awk -v k="$1" '$1==k{print $3}'; }
-    cyc=$(echo "$got" | sed -n 's/.*cycles = //p')
+    line=$(echo "$got" | grep '^pipeline: mode')
+    kv() { echo "$line" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
     st="MATCH"; [ "$r" = "$g" ] && [ "$ro" = "$go" ] || st="MISMATCH"
-    [ $(( $(v retired) + 4 + 2 * $(v redirects) + $(v stalls) )) = "$cyc" ] || st="$st IDENTITY-FAIL"
-    printf '%-30s %-7s %s  cycles=%-4s retired=%-4s stalls=%-3s fwd=%-3s br=%-3s jal=%-3s jalr=%-3s redir=%s\n' \
-      "$(basename $f)" $h "$st" "$cyc" "$(v retired)" "$(v stalls)" "$(v forwards)" "$(v branches)" "$(v jal)" "$(v jalr)" "$(v redirects)"
+    [ "$(kv cycles)" -le $(( $(kv retired) + $(kv stalls) + $(kv flushes) + 4 )) ] || st="$st IDENTITY-FAIL"
+    [ "$st" = "MATCH" ] || fail=1
+    printf '%-28s %-18s %s  %s\n' "$(basename "$f")" "$m" "$st" "$(echo "$line" | cut -d' ' -f2-)"
   done
 done
+exit $fail

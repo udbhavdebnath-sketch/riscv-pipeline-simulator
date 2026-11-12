@@ -9,7 +9,7 @@ grep -v '^#' tests/demo/expected.txt | while read prog want labs; do
     [ "$labs" = all ] || [ "$labs" = "$lab" ] || continue
     case $lab in
       lab2) modes="--batch|--pipeline" ;;
-      lab3) modes="--single-cycle|--batch --hazard forward|--batch --hazard stall" ;;
+      lab3) modes="--batch|--pipeline|--pipeline-forward" ;;
       *)    modes="--single-cycle"
             for h in forward stall; do for p in not-taken btfn 1bit 2bit; do
               modes="$modes|--batch --hazard $h --predictor $p"; done; done ;;

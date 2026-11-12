@@ -19,11 +19,12 @@ gains `--pipeline` (and `--trace`), the Makefile two lines.
 - **Branches and jumps (Task 5)** resolve in EX; when taken, the instruction in ID is killed and
   IF fetches the target in the same cycle, so the penalty is one cycle. This is the only policy
   under which the sheet's identity holds with 11 flushes for sample1.
-- **Counters.** A stall or flush is counted when its bubble reaches WB, so every cycle is
-  exactly one of: a retirement, a stall, a flush, or one of the 4 fill cycles. This keeps
-  `cycles = retired + stalls + flushes + 4` exact for every program — counting at creation
-  breaks it when a stall happens behind the final `ecall`. The cycle in which a fault reaches WB
-  is not counted, so the identity also holds for programs that end in a fault.
+- **Counters.** Like the lab sheets' own code, a stall is counted in the cycle ID is held and
+  a flush in the cycle a taken branch or jump squashes ID. For every program that ends with
+  its exit `ecall` (all of the sheet's), `cycles = retired + stalls + flushes + 4` holds exactly.
+  A stall or flush caused by code fetched after the exit is counted but never reaches WB, so
+  there cycles can fall slightly below the identity, never above. The cycle in which a fault
+  reaches WB is not counted, so the 5-`addi` example (which simply runs off its end) gives 9.
 
 ## Results
 
@@ -36,7 +37,8 @@ gains `--pipeline` (and `--trace`), the Makefile two lines.
 All three rows match the sheet; the registers and printed output match the single-cycle run.
 `sample3_hazards.s` was not in the handout (Appendix A was missing); ours was written to the
 sheet's description (data hazards at distance 1–3, a store-data hazard, a load-use pair, a taken
-branch, a call and a return) and reproduces its row exactly.
+branch, a call and a return) and reproduces its row exactly. Its called function sits before
+`main`, so no code follows the exit `ecall`.
 Identity check, sample1: 53 + 40 + 11 + 4 = 108.
 
 ## Single-cycle vs pipelined

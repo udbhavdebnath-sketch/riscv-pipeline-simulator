@@ -82,6 +82,19 @@
   - Root `Makefile` (`make test` runs everything), `EXTRA_CFLAGS` hook, CI on Ubuntu gcc and
     macOS clang with `-Werror`. Reports for Labs 2 and 3 added.
 
+- **Lab Sheet 3 arrived (2026-11-12): lab3/ rebuilt to it.** The real Lab 3 keeps Lab 2's CLI
+  and 1-cycle flush and adds `--pipeline-forward` (`hazard_check`/`forward_operands`,
+  `HazardVerdict`, `Operands`, `int forwarding`, counters `load_use_stalls fwd_ex fwd_mem`, the
+  `pipeline: mode=...` summary line, the sheet's trace format). `micro.s` and
+  `sample4_data_hazards.s` copied verbatim; every figure of its two tables matches (golden.sh
+  now 95 checks). Extra tests: `priority.s` (EX/MEM wins), `load_use4.s` (4 load-use shapes).
+  Labs 2 and 3 now count stalls/flushes when they happen, like the sheets' code (was: when the
+  bubble reaches WB); the identity becomes <= only for code after the exit ecall.
+  The previous lab3 (2-cycle redirects, `--hazard`) is the pipeline Lab 4 starts from; it lives
+  on inside lab4/ and as git tag `lab3-done`. The re-uploaded W7 sheet is the same document
+  (page 6 still blank), so Lab 2's Tasks 4–6 remain reconstructed; Lab Sheet 3 confirms them
+  (naive 3-latch stalling, 1-cycle flush, `--pipeline`).
+
 ## Known limits / report notes
 - A jalr whose target is pc+4 is not redirected in Labs 4/5 (IF's pc+4 guess was right), so
   `redirects = mispredicts + jalr` becomes `<=` for such programs; the cycle identity still holds.

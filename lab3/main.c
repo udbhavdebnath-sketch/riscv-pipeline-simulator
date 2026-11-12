@@ -9,7 +9,6 @@
 #include "assembler.h"
 #include "cli_display.h"
 #include "pipeline_state.h"
-#include "hazard.h"
 
 #define DEFAULT_MEM_SIZE   (1u << 20)   /* 1 MB */
 #define DEFAULT_MAX_CYCLES 1000000ull
@@ -18,9 +17,10 @@ static void usage(const char *prog) {
     fprintf(stderr,
         "usage: %s <program.s> [options]\n"
         "  --batch              run to completion with no interaction, then dump state\n"
-        "  --single-cycle       with --batch: run the single-cycle reference instead of the pipeline\n"
-        "  --hazard stall|forward  hazard unit for the pipeline (default forward)\n"
-        "  --trace              print one line per pipeline cycle\n"
+        "  --pipeline           run on the 5-stage pipeline, stalling only (implies --batch)\n"
+        "  --pipeline-forward   run on the 5-stage pipeline with forwarding (implies --batch)\n"
+        "  --single-cycle       same as --batch: the single-cycle reference\n"
+        "  --trace              with --pipeline: per-cycle stage dump on stderr\n"
         "  --max-cycles N       cycle limit for --batch mode (default %llu)\n"
         "  --mem-size N         memory size in bytes (default %u)\n",
         prog, (unsigned long long)DEFAULT_MAX_CYCLES, DEFAULT_MEM_SIZE);
@@ -33,8 +33,7 @@ int main(int argc, char **argv) {
     }
 
     const char *program_path = argv[1];
-    int batch_mode = 0, single_cycle = 0;
-    const HazardUnit *hz = &hazard_forward;
+    int batch_mode = 0, pipe_mode = 0, forwarding = 0;
     uint64_t max_cycles = DEFAULT_MAX_CYCLES;
     uint32_t mem_size = DEFAULT_MEM_SIZE;
 
@@ -42,14 +41,11 @@ int main(int argc, char **argv) {
         if (strcmp(argv[i], "--batch") == 0) {
             batch_mode = 1;
         } else if (strcmp(argv[i], "--pipeline") == 0) {
-            batch_mode = 1;                 /* Lab 2 spelling: the pipeline is now the default */
+            pipe_mode = 1;
+        } else if (strcmp(argv[i], "--pipeline-forward") == 0) {
+            pipe_mode = 1; forwarding = 1;
         } else if (strcmp(argv[i], "--single-cycle") == 0) {
-            batch_mode = 1; single_cycle = 1;
-        } else if (strcmp(argv[i], "--hazard") == 0 && i + 1 < argc) {
-            if (!(hz = hazard_find(argv[++i]))) {
-                fprintf(stderr, "unknown hazard unit '%s' (stall|forward)\n", argv[i]);
-                return 1;
-            }
+            batch_mode = 1;
         } else if (strcmp(argv[i], "--trace") == 0) {
             pipeline_trace = 1;
         } else if (strcmp(argv[i], "--max-cycles") == 0 && i + 1 < argc) {
@@ -92,9 +88,9 @@ int main(int argc, char **argv) {
     CPUState cpu;
     cpu_reset(&cpu, entry_point);
 
-    if (batch_mode && !single_cycle) {
+    if (pipe_mode) {
         Pipeline pipe;
-        pipeline_init(&pipe, hz);
+        pipeline_init(&pipe, forwarding);
         pipeline_run_batch(&pipe, &cpu, &mem, max_cycles);
     } else if (batch_mode) {
         run_batch(&cpu, &mem, max_cycles);

@@ -10,13 +10,12 @@
 #define OP_LUI   0x37
 #define OP_AUIPC 0x17
 #define OP_JAL   0x6F
-#define OP_JALR  0x67
 
 int pipeline_trace = 0;
 
-void pipeline_init(Pipeline *p, const HazardUnit *hz) {
+void pipeline_init(Pipeline *p, int forwarding) {
     memset(p, 0, sizeof(*p));
-    p->hazard = hz;
+    p->forwarding = forwarding;
 }
 
 static uint32_t alu(const DecodedInstr *i, uint32_t pc, uint32_t a, uint32_t b) {
@@ -57,51 +56,37 @@ static int branch_taken(uint32_t funct3, uint32_t a, uint32_t b) {
     return 0;
 }
 
-/* The forwarding mux in front of one ALU input. */
-static uint32_t operand(const Pipeline *p, uint32_t reg, uint32_t latched, int *nfwd) {
-    switch (p->hazard->forward(p, reg)) {
-        case FWD_EX_MEM: (*nfwd)++; return p->ex_mem.alu_result;
-        case FWD_MEM_WB: (*nfwd)++; return p->mem_wb.wb_val;
-        default:         return latched;
-    }
-}
-
-static void trace_pc(int valid, uint32_t pc) {
-    if (valid) printf(" 0x%08x", pc); else printf(" ----------");
-}
-
 CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     if (cpu->status != CPU_RUNNING) return cpu->status;
     Pipeline nx = *p;        /* nx = next state; p = current (old) state */
 
     /* ---------------- WB ---------------- */
-    if (p->mem_wb.valid && p->mem_wb.fault != PF_NONE) {
+    if (p->mem_wb.valid) {
         const MEMWB *w = &p->mem_wb;
-        if (w->fault == PF_MEM) {
-            cpu->status = CPU_MEM_FAULT;
-            cpu->fault_addr = w->fault_addr;
-            snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
-                     "memory access out of bounds at address 0x%08x (pc=0x%08x)", w->fault_addr, w->pc);
-        } else if (w->fault == PF_FETCH) {
-            cpu->status = CPU_MEM_FAULT;
-            cpu->fault_addr = w->pc;
-            snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
-                     "instruction fetch out of bounds at pc=0x%08x", w->pc);
-        } else {
-            cpu->status = CPU_ILLEGAL_INSTRUCTION;
-            cpu->fault_addr = w->pc;
-            snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
-                     "unknown instruction 0x%08x at pc=0x%08x (no handler registered)",
-                     w->instr.raw, w->pc);
+        if (w->fault != PF_NONE) {
+            if (w->fault == PF_MEM) {
+                cpu->status = CPU_MEM_FAULT;
+                cpu->fault_addr = w->fault_addr;
+                snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
+                         "memory access out of bounds at address 0x%08x (pc=0x%08x)", w->fault_addr, w->pc);
+            } else if (w->fault == PF_FETCH) {
+                cpu->status = CPU_MEM_FAULT;
+                cpu->fault_addr = w->pc;
+                snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
+                         "instruction fetch out of bounds at pc=0x%08x", w->pc);
+            } else {
+                cpu->status = CPU_ILLEGAL_INSTRUCTION;
+                cpu->fault_addr = w->pc;
+                snprintf(cpu->fault_msg, sizeof(cpu->fault_msg),
+                         "unknown instruction 0x%08x at pc=0x%08x (no handler registered)",
+                         w->instr.raw, w->pc);
+            }
+            *p = nx;                /* the faulting cycle is not counted */
+            return cpu->status;
         }
-        *p = nx;                /* the faulting cycle is not counted */
-        return cpu->status;
     }
     nx.cycles++;
-    if (!p->mem_wb.valid) {
-        if (p->mem_wb.bubble == BUB_STALL) nx.stalls++;
-        if (p->mem_wb.bubble == BUB_SQUASH_HEAD) { nx.redirects++; nx.squashed += 2; }
-    } else {
+    if (p->mem_wb.valid) {
         const MEMWB *w = &p->mem_wb;
         if (w->ctrl.reg_write) cpu_write_reg(cpu, (int)w->instr.rd, w->wb_val);
         if (w->ctrl.is_system) {
@@ -112,10 +97,6 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
             cpu->pc = saved;
         }
         nx.retired++;
-        nx.forwards += (uint64_t)w->nfwd;
-        if (w->ctrl.is_branch) nx.branches++;
-        if (w->instr.opcode == OP_JAL)  nx.jal++;
-        if (w->instr.opcode == OP_JALR) nx.jalr++;
         if (cpu->status != CPU_RUNNING) {   /* ecall exit: nothing younger may commit */
             *p = nx;
             return cpu->status;
@@ -124,13 +105,12 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
 
     /* ---------------- MEM ---------------- */
     nx.mem_wb.valid = 0;
-    nx.mem_wb.bubble = p->ex_mem.bubble;
     if (p->ex_mem.valid) {
         const EXMEM *e = &p->ex_mem;
         MEMWB *o = &nx.mem_wb;
         o->valid = 1; o->pc = e->pc; o->fault = e->fault; o->instr = e->instr;
         o->handler = e->handler; o->ctrl = e->ctrl; o->wb_val = e->alu_result;
-        o->fault_addr = e->fault_addr; o->nfwd = e->nfwd;
+        o->fault_addr = e->fault_addr;
         if (e->fault == PF_NONE) {
             uint32_t a = e->alu_result;
             MemStatus st = MEM_OK;
@@ -156,36 +136,35 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     }
 
     /* ---------------- EX ---------------- */
-    /* Branches and jumps resolve here. Fetch always continues at pc+4, so a
-     * taken branch or any jump squashes the two younger instructions (in ID
-     * and IF) and refetches from the target next cycle: 2 cycles. */
-    int redirect = 0;
+    int flush = 0;
     uint32_t redirect_pc = 0;
     nx.ex_mem.valid = 0;
-    nx.ex_mem.bubble = p->id_ex.bubble;
     if (p->id_ex.valid) {
         const IDEX *d = &p->id_ex;
         EXMEM *o = &nx.ex_mem;
         o->valid = 1; o->pc = d->pc; o->fault = d->fault; o->instr = d->instr;
         o->handler = d->handler; o->ctrl = d->ctrl;
-        o->alu_result = 0; o->fault_addr = 0; o->nfwd = 0;
+        o->alu_result = 0; o->fault_addr = 0;
+        /* The forwarded values replace rs1_val/rs2_val in all four places:
+         * ALU operands, store data, branch comparison and jalr target. */
+        Operands op = forward_operands(p, d);
+        nx.fwd_ex  += (uint64_t)op.fwd_ex;
+        nx.fwd_mem += (uint64_t)op.fwd_mem;
+        o->store_val = op.b;
         if (d->fault == PF_NONE) {
-            uint32_t a = d->ctrl.uses_rs1 ? operand(p, d->instr.rs1, d->rs1_val, &o->nfwd) : d->rs1_val;
-            uint32_t b = d->ctrl.uses_rs2 ? operand(p, d->instr.rs2, d->rs2_val, &o->nfwd) : d->rs2_val;
-            o->store_val = b;
             if (d->ctrl.is_branch) {
-                if (branch_taken(d->instr.funct3, a, b)) {
-                    redirect = 1;
+                if (branch_taken(d->instr.funct3, op.a, op.b)) {
+                    flush = 1;
                     redirect_pc = d->pc + (uint32_t)d->instr.imm;
                 }
             } else if (d->ctrl.is_jump) {
                 o->alu_result = d->pc + 4;
-                redirect = 1;
+                flush = 1;
                 redirect_pc = (d->instr.opcode == OP_JAL)
                             ? d->pc + (uint32_t)d->instr.imm
-                            : (a + (uint32_t)d->instr.imm) & ~1u;
+                            : (op.a + (uint32_t)d->instr.imm) & ~1u;
             } else {
-                o->alu_result = alu(&d->instr, d->pc, a, b);
+                o->alu_result = alu(&d->instr, d->pc, op.a, op.b);
             }
         }
     }
@@ -193,10 +172,8 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     /* ---------------- ID ---------------- */
     int stall = 0;
     nx.id_ex.valid = 0;
-    nx.id_ex.bubble = p->if_id.bubble;
-    if (redirect) {
-        nx.id_ex.bubble = BUB_SQUASH_HEAD;  /* kill the instruction in ID */
-    } else if (p->if_id.valid) {
+    if (flush) nx.flushes++;          /* the instruction in ID is squashed */
+    if (p->if_id.valid && !flush) {   /* a flush kills the instruction in ID */
         IDEX *o = &nx.id_ex;
         memset(o, 0, sizeof(*o));
         o->valid = 1; o->pc = p->if_id.pc;
@@ -209,12 +186,13 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
             o->instr.raw = p->if_id.raw;
         } else {
             ControlSignals c = control_decode(&d, h);
-            if (p->hazard->stall(p, &d, &c)) {
+            HazardVerdict hz = hazard_check(p, &d, &c);
+            if (hz.stall) {               /* 1. bubble into EX; 2./3. IF/ID and fetch freeze below */
                 stall = 1;
-                o->valid = 0;             /* bubble into EX */
-                o->bubble = BUB_STALL;
+                o->valid = 0;
+                nx.stalls++;
+                if (hz.load_use) nx.load_use_stalls++;
             } else {
-                /* WB already wrote this cycle, so this read sees it. */
                 o->instr = d; o->handler = h; o->ctrl = c;
                 o->rs1_val = cpu_read_reg(cpu, (int)d.rs1);
                 o->rs2_val = cpu_read_reg(cpu, (int)d.rs2);
@@ -223,32 +201,23 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     }
 
     /* ---------------- IF ---------------- */
-    uint32_t fetch_pc = cpu->pc;
     if (stall) {
         nx.if_id = p->if_id;              /* freeze IF/ID and the fetch PC */
     } else {
+        uint32_t fetch_pc = flush ? redirect_pc : cpu->pc;
         uint32_t raw = 0;
         nx.if_id.valid = 1;
-        nx.if_id.bubble = BUB_FILL;
         nx.if_id.pc = fetch_pc;
         nx.if_id.fault = (memory_read_word(mem, fetch_pc, &raw) == MEM_OK) ? PF_NONE : PF_FETCH;
         nx.if_id.raw = raw;
         cpu->pc = fetch_pc + 4;
     }
-    if (redirect) {                       /* kill what IF just fetched */
-        nx.if_id.valid = 0;
-        nx.if_id.bubble = BUB_SQUASH;
-        cpu->pc = redirect_pc;
-    }
 
     if (pipeline_trace) {
-        printf("[cycle %llu] IF", (unsigned long long)nx.cycles);
-        trace_pc(1, fetch_pc);
-        printf(" | ID");  trace_pc(p->if_id.valid,  p->if_id.pc);
-        printf(" | EX");  trace_pc(p->id_ex.valid,  p->id_ex.pc);
-        printf(" | MEM"); trace_pc(p->ex_mem.valid, p->ex_mem.pc);
-        printf(" | WB");  trace_pc(p->mem_wb.valid, p->mem_wb.pc);
-        printf("\n");
+        fprintf(stderr, "c%-3llu IF=%04x ID=%04x EX=%04x MEM=%04x WB=%04x %s%s\n",
+                (unsigned long long)nx.cycles, nx.if_id.pc, p->if_id.pc,
+                p->id_ex.pc, p->ex_mem.pc, p->mem_wb.pc,
+                stall ? "STALL " : "", flush ? "FLUSH" : "");
     }
 
     *p = nx;                 /* commit: one clock edge */
@@ -266,14 +235,19 @@ void pipeline_run_batch(Pipeline *p, CPUState *cpu, Memory *mem, uint64_t max_cy
     if (cpu->status == CPU_RUNNING) {
         printf("  -> stopped: reached max cycle limit (%llu)\n", (unsigned long long)max_cycles);
     }
-    printf("pipeline        = 5-stage, hazard unit '%s', no predictor (fetch pc+4)\n", p->hazard->name);
+    printf("pipeline        = 5-stage, %s, branches resolved in EX\n",
+           p->forwarding ? "forwarding + load-use stall" : "naive 3-latch stall");
+    printf("cycles          = %llu\n", (unsigned long long)p->cycles);
     printf("retired         = %llu\n", (unsigned long long)p->retired);
-    printf("CPI             = %.3f\n", p->retired ? (double)p->cycles / (double)p->retired : 0.0);
     printf("stalls          = %llu\n", (unsigned long long)p->stalls);
-    printf("forwards        = %llu\n", (unsigned long long)p->forwards);
-    printf("branches        = %-9llu conditional branches executed\n", (unsigned long long)p->branches);
-    printf("jal             = %-9llu 2 cycles each\n", (unsigned long long)p->jal);
-    printf("jalr            = %-9llu 2 cycles each\n", (unsigned long long)p->jalr);
-    printf("redirects       = %-9llu taken branches + jal + jalr\n", (unsigned long long)p->redirects);
-    printf("squashed        = %-9llu instructions thrown away (2 per redirect)\n", (unsigned long long)p->squashed);
+    printf("flushes         = %llu\n", (unsigned long long)p->flushes);
+    printf("CPI             = %.3f\n", p->retired ? (double)p->cycles / (double)p->retired : 0.0);
+    printf("pipeline: mode=%s cycles=%llu retired=%llu stalls=%llu flushes=%llu "
+           "CPI=%.3f fwd_ex=%llu fwd_mem=%llu load_use=%llu\n",
+           p->forwarding ? "forward" : "stall",
+           (unsigned long long)p->cycles, (unsigned long long)p->retired,
+           (unsigned long long)p->stalls, (unsigned long long)p->flushes,
+           p->retired ? (double)p->cycles / (double)p->retired : 0.0,
+           (unsigned long long)p->fwd_ex, (unsigned long long)p->fwd_mem,
+           (unsigned long long)p->load_use_stalls);
 }

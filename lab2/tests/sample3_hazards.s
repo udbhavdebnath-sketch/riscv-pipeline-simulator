@@ -4,6 +4,14 @@
 
 .text
 .globl main
+show:
+    slli a0, t4, 1          # a0 = 60
+    srli a0, a0, 1          # RAW on a0 -> 30
+    addi a7, zero, 1        # print a0
+    ecall
+    add  a1, a0, a0         # RAW on a0 at distance 3 -> 1 stall; a1 = 60
+    jalr zero, 0(ra)        # return -> flush
+
 main:
     li   s0, buf            # lui+addi: RAW inside the pseudo-op
     addi t0, zero, 10       # t0 = 10
@@ -18,14 +26,6 @@ equal:
     jal  ra, show           # jump -> flush
     addi a7, zero, 10       # exit
     ecall
-
-show:
-    slli a0, t4, 1          # a0 = 60
-    srli a0, a0, 1          # RAW on a0 -> 30
-    addi a7, zero, 1        # print a0
-    ecall
-    add  a1, a0, a0         # RAW on a0 at distance 3 -> 1 stall; a1 = 60
-    jalr zero, 0(ra)        # return -> flush
 
 .data
 buf:

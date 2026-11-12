@@ -3,30 +3,25 @@
 
 #include "pipeline_state.h"
 
-/* Forwarding mux select for one EX operand. */
-typedef enum { FWD_NONE = 0, FWD_EX_MEM, FWD_MEM_WB } FwdSel;
+typedef struct {
+    int stall;      /* hold ID, bubble EX, freeze IF                 */
+    int load_use;   /* the producer is a load still in EX (Task 3)   */
+} HazardVerdict;
 
-/* The hazard unit is a plug-in, selected at run time with --hazard.
- *   stall   : called in ID with the instruction being decoded; 1 = hold it
- *             in ID this cycle (bubble into EX).
- *   forward : called in EX for each source register; says where the
- *             freshest value of `reg` comes from. */
-struct HazardUnit {
-    const char *name;
-    const char *description;
-    int    (*stall)(const Pipeline *p, const DecodedInstr *d, const ControlSignals *c);
-    FwdSel (*forward)(const Pipeline *p, uint32_t reg);
-};
-typedef struct HazardUnit HazardUnit;
+typedef struct {
+    uint32_t a, b;        /* the operands EX should actually use */
+    int fwd_ex, fwd_mem;  /* how many operands came from each path (stats) */
+} Operands;
 
-extern const HazardUnit hazard_stall;     /* interlock only, no forwarding  */
-extern const HazardUnit hazard_forward;   /* EX/MEM + MEM/WB forwarding     */
+/* valid latch + really writes a register + not x0 + same register number */
+int produces(int valid, const ControlSignals *lc, uint32_t rd, uint32_t rs);
 
-const HazardUnit *hazard_find(const char *name);
+/* Called in ID. Stalling mode: stall while any of ID/EX, EX/MEM, MEM/WB
+ * produces a source. Forwarding mode: stall only for load-use. */
+HazardVerdict hazard_check(const Pipeline *p, const DecodedInstr *d,
+                           const ControlSignals *c);
 
-/* rd of a valid, register-writing latch matches r (r != x0). Shared by both units. */
-static inline int hz_writes(int valid, const ControlSignals *c, uint32_t rd, uint32_t r) {
-    return valid && c->reg_write && rd != 0 && rd == r;
-}
+/* Called in EX: the forwarding muxes in front of the ALU inputs. */
+Operands forward_operands(const Pipeline *p, const IDEX *d);
 
 #endif /* HAZARD_H */

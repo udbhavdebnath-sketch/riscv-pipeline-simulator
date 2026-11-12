@@ -1,57 +1,60 @@
 #include "hazard.h"
-#include <string.h>
 
-/* The register file is written in WB before ID reads it in the same cycle
- * (write-first-half / read-second-half), so an instruction three or more
- * behind its producer never needs help from the hazard unit. */
+int produces(int valid, const ControlSignals *lc, uint32_t rd, uint32_t rs) {
+    return valid && lc->reg_write && rd != 0 && rd == rs;
+}
 
-/* ---------------- interlock: stall until the value is in the register file */
+HazardVerdict hazard_check(const Pipeline *p, const DecodedInstr *d,
+                           const ControlSignals *c) {
+    HazardVerdict v = {0, 0};
+    /* An unused source becomes x0, which produces() rejects: lui must not
+     * "read" the junk in its rs1 field. */
+    uint32_t s1 = c->uses_rs1 ? d->rs1 : 0;
+    uint32_t s2 = c->uses_rs2 ? d->rs2 : 0;
 
-static int stall_interlock(const Pipeline *p, const DecodedInstr *d, const ControlSignals *c) {
-    uint32_t srcs[2] = { c->uses_rs1 ? d->rs1 : 0, c->uses_rs2 ? d->rs2 : 0 };
-    for (int k = 0; k < 2; k++) {
-        if (hz_writes(p->id_ex.valid,  &p->id_ex.ctrl,  p->id_ex.instr.rd,  srcs[k])) return 1;
-        if (hz_writes(p->ex_mem.valid, &p->ex_mem.ctrl, p->ex_mem.instr.rd, srcs[k])) return 1;
+    if (!p->forwarding) {                     /* Task 1: stall on any of 3 latches */
+        if (produces(p->id_ex.valid,  &p->id_ex.ctrl,  p->id_ex.instr.rd,  s1) ||
+            produces(p->id_ex.valid,  &p->id_ex.ctrl,  p->id_ex.instr.rd,  s2) ||
+            produces(p->ex_mem.valid, &p->ex_mem.ctrl, p->ex_mem.instr.rd, s1) ||
+            produces(p->ex_mem.valid, &p->ex_mem.ctrl, p->ex_mem.instr.rd, s2) ||
+            produces(p->mem_wb.valid, &p->mem_wb.ctrl, p->mem_wb.instr.rd, s1) ||
+            produces(p->mem_wb.valid, &p->mem_wb.ctrl, p->mem_wb.instr.rd, s2))
+            v.stall = 1;
+        return v;
     }
-    return 0;
+
+    /* Task 3: forwarding covers everything except a load still in EX. Its
+     * value exists only at the end of MEM, when the consumer needs it at the
+     * start of EX: one stall, then MEM/WB -> EX delivers it. */
+    if (p->id_ex.valid && p->id_ex.ctrl.mem_read && p->id_ex.instr.rd != 0 &&
+        ((c->uses_rs1 && d->rs1 == p->id_ex.instr.rd) ||
+         (c->uses_rs2 && d->rs2 == p->id_ex.instr.rd))) {
+        v.stall = 1;
+        v.load_use = 1;
+    }
+    return v;
 }
 
-static FwdSel forward_none(const Pipeline *p, uint32_t reg) {
-    (void)p; (void)reg;
-    return FWD_NONE;
+/* One mux per operand. EX/MEM holds the younger producer, so it wins. */
+static uint32_t forward_one(const Pipeline *p, uint32_t rs, uint32_t latched, int *fwd_ex, int *fwd_mem) {
+    if (produces(p->ex_mem.valid, &p->ex_mem.ctrl, p->ex_mem.instr.rd, rs)) {
+        (*fwd_ex)++;
+        return p->ex_mem.alu_result;
+    }
+    if (produces(p->mem_wb.valid, &p->mem_wb.ctrl, p->mem_wb.instr.rd, rs)) {
+        (*fwd_mem)++;
+        return p->mem_wb.wb_val;
+    }
+    return latched;
 }
 
-const HazardUnit hazard_stall = {
-    "stall",
-    "interlock: stall until the producer has written back, no forwarding",
-    stall_interlock,
-    forward_none,
-};
+Operands forward_operands(const Pipeline *p, const IDEX *d) {
+    Operands o = { d->rs1_val, d->rs2_val, 0, 0 };
+    if (!p->forwarding || d->fault != PF_NONE) return o;
 
-/* ---------------- forwarding: only a load followed by a use must wait */
-
-static int stall_load_use(const Pipeline *p, const DecodedInstr *d, const ControlSignals *c) {
-    if (!p->id_ex.valid || !p->id_ex.ctrl.mem_read) return 0;
-    return (c->uses_rs1 && hz_writes(1, &p->id_ex.ctrl, p->id_ex.instr.rd, d->rs1))
-        || (c->uses_rs2 && hz_writes(1, &p->id_ex.ctrl, p->id_ex.instr.rd, d->rs2));
-}
-
-static FwdSel forward_ex_mem_wb(const Pipeline *p, uint32_t reg) {
-    /* The younger producer (EX/MEM) wins over the older one (MEM/WB). */
-    if (hz_writes(p->ex_mem.valid, &p->ex_mem.ctrl, p->ex_mem.instr.rd, reg)) return FWD_EX_MEM;
-    if (hz_writes(p->mem_wb.valid, &p->mem_wb.ctrl, p->mem_wb.instr.rd, reg)) return FWD_MEM_WB;
-    return FWD_NONE;
-}
-
-const HazardUnit hazard_forward = {
-    "forward",
-    "forwarding from EX/MEM and MEM/WB, one stall on load-use",
-    stall_load_use,
-    forward_ex_mem_wb,
-};
-
-const HazardUnit *hazard_find(const char *name) {
-    if (strcmp(name, hazard_stall.name) == 0)   return &hazard_stall;
-    if (strcmp(name, hazard_forward.name) == 0) return &hazard_forward;
-    return NULL;
+    if (d->ctrl.uses_rs1 && d->instr.rs1 != 0)
+        o.a = forward_one(p, d->instr.rs1, d->rs1_val, &o.fwd_ex, &o.fwd_mem);
+    if (d->ctrl.uses_rs2 && d->instr.rs2 != 0)
+        o.b = forward_one(p, d->instr.rs2, d->rs2_val, &o.fwd_ex, &o.fwd_mem);
+    return o;
 }

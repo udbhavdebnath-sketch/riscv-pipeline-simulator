@@ -101,10 +101,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
         }
     }
     nx.cycles++;
-    if (!p->mem_wb.valid) {
-        if (p->mem_wb.bubble == BUB_STALL) nx.stalls++;
-        if (p->mem_wb.bubble == BUB_FLUSH) nx.flushes++;
-    } else {
+    if (p->mem_wb.valid) {
         const MEMWB *w = &p->mem_wb;
         if (w->ctrl.reg_write) cpu_write_reg(cpu, (int)w->instr.rd, w->wb_val);
         if (w->ctrl.is_system) {
@@ -123,7 +120,6 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
 
     /* ---------------- MEM ---------------- */
     nx.mem_wb.valid = 0;
-    nx.mem_wb.bubble = p->ex_mem.bubble;
     if (p->ex_mem.valid) {
         const EXMEM *e = &p->ex_mem;
         MEMWB *o = &nx.mem_wb;
@@ -158,7 +154,6 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     int flush = 0;
     uint32_t redirect_pc = 0;
     nx.ex_mem.valid = 0;
-    nx.ex_mem.bubble = p->id_ex.bubble;
     if (p->id_ex.valid) {
         const IDEX *d = &p->id_ex;
         EXMEM *o = &nx.ex_mem;
@@ -186,7 +181,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     /* ---------------- ID ---------------- */
     int stall = 0;
     nx.id_ex.valid = 0;
-    nx.id_ex.bubble = flush ? BUB_FLUSH : BUB_FILL;
+    if (flush) nx.flushes++;          /* the instruction in ID is squashed */
     if (p->if_id.valid && !flush) {   /* a flush kills the instruction in ID */
         IDEX *o = &nx.id_ex;
         memset(o, 0, sizeof(*o));
@@ -203,7 +198,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
             if (hazard(p, &d, &c)) {
                 stall = 1;
                 o->valid = 0;             /* bubble into EX */
-                o->bubble = BUB_STALL;
+                nx.stalls++;
             } else {
                 o->instr = d; o->handler = h; o->ctrl = c;
                 o->rs1_val = cpu_read_reg(cpu, (int)d.rs1);

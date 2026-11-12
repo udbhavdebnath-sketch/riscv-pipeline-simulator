@@ -17,9 +17,9 @@ None of the predictors keep state outside `BPState`; `predict` takes `const BPSt
 
 ## 2. Results
 
-**Cycles** (Lab 3 = previous lab's pipeline: fetch always pc+4, every taken branch and jump costs 2):
+**Cycles** (Previous = the pipeline this lab starts from, the Lab 4 sheet's "Lab 2" column: fetch always pc+4, every taken branch and jump costs 2. Measured with the `lab3-done` git tag):
 
-| Program | Instrs | Lab 3 | not-taken | btfn | 1bit | 2bit | single-cycle |
+| Program | Instrs | Previous | not-taken | btfn | 1bit | 2bit | single-cycle |
 |---|---|---|---|---|---|---|---|
 | t1_counted_loop | 37 | 59 | 59 | 43 | 45 | 45 | 37 |
 | t2_nested_loops | 52 | 78 | 78 | 66 | 76 | 70 | 52 |
@@ -71,7 +71,7 @@ branch's eight executions.
 ## 4. The three results the sheet asks about
 
 **t4 drops from 344 to 278 before any prediction.** The not-taken predictor guesses exactly as the
-Lab 3 pipeline did, yet t4 loses 66 cycles = 2 × 33 `jal`. That is the IF pre-decode: a `jal`'s
+previous pipeline did, yet t4 loses 66 cycles = 2 × 33 `jal`. That is the IF pre-decode: a `jal`'s
 target is in its immediate, so IF redirects itself the same cycle and the jump costs nothing. The
 18 returns (`jalr`) still cost 2 cycles each (36 cycles), because their target is in a register IF
 cannot read and there is no return-address stack. That is why all four predictors score almost
