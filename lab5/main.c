@@ -23,7 +23,7 @@ static void usage(const char *prog) {
         "usage: %s <program.s> [options]\n"
         "  --batch              run to completion with no interaction, then dump state\n"
         "  --single-cycle       with --batch: run the single-cycle reference instead of the pipeline\n"
-        "  --hazard stall|forward  hazard unit for the pipeline (default forward)\n"
+        "  --hazard none|stall|forward  hazard unit for the pipeline (default forward)\n"
         "  --predictor not-taken|btfn|1bit|2bit  branch predictor (default 2bit)\n"
         "  --trace              print one line per pipeline cycle\n"
         "  --max-cycles N       cycle limit for --batch mode (default %llu)\n"
@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
     }
 
     const char *program_path = argv[1];
-    int batch_mode = 0, single_cycle = 0;
+    int batch_mode = 0, single_cycle = 0, trace = 0;
     const HazardUnit *hz = &hazard_forward;
     const BranchPredictor *bp = &bp_2bit;
     uint64_t max_cycles = DEFAULT_MAX_CYCLES;
@@ -53,11 +53,11 @@ int main(int argc, char **argv) {
             batch_mode = 1; single_cycle = 1;
         } else if (strcmp(argv[i], "--hazard") == 0 && i + 1 < argc) {
             if (!(hz = hazard_find(argv[++i]))) {
-                fprintf(stderr, "unknown hazard unit '%s' (stall|forward)\n", argv[i]);
+                fprintf(stderr, "unknown hazard unit '%s' (none|stall|forward)\n", argv[i]);
                 return 1;
             }
         } else if (strcmp(argv[i], "--trace") == 0) {
-            pipeline_trace = 1;
+            trace = 1;
         } else if (strcmp(argv[i], "--predictor") == 0 && i + 1 < argc) {
             if (!(bp = bp_find(argv[++i]))) {
                 fprintf(stderr, "unknown predictor '%s' (not-taken|btfn|1bit|2bit)\n", argv[i]);
@@ -106,15 +106,16 @@ int main(int argc, char **argv) {
     CPUState cpu;
     cpu_reset(&cpu, entry_point);
 
-    if (batch_mode && !single_cycle) {
-        Pipeline pipe;
+    SimEngine engine;
+    Pipeline pipe;
+    if (!single_cycle) {
         pipeline_init(&pipe, hz, bp);
-        pipeline_run_batch(&pipe, &cpu, &mem, max_cycles);
-    } else if (batch_mode) {
-        run_batch(&cpu, &mem, max_cycles);
+        pipeline_make_engine(&engine, &pipe, &cpu, &mem);
     } else {
-        run_repl(&cpu, &mem);
+        sim_engine_single_cycle(&engine, &cpu, &mem);
     }
+    if (batch_mode) run_batch(&engine, max_cycles, trace);
+    else run_repl(&engine);
 
     memory_free(&mem);
     return 0;

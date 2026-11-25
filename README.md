@@ -17,6 +17,27 @@ it is the pipeline and `--single-cycle` is the reference).
 | `lab4/` | Branch prediction | pluggable `--hazard forward\|stall`, 2-cycle redirects, IF pre-decode (`jal` free), pluggable `--predictor not-taken\|btfn\|1bit\|2bit` |
 | `lab5/` | Floating point | f registers and `fcsr`, RV32F (26 instructions, 5 rounding modes, IEEE flags), Zicsr, RV32M, FP-aware assembler |
 
+## Final evaluator (November 2026)
+
+Final submission: [Final_2024A7PS0121H_2024A7PS0107H.zip](submission/Final_2024A7PS0121H_2024A7PS0107H.zip).
+See [the final validation report](reports/final_validation.md) for the supplied
+materials, test results, historical timing differences, and remaining limits.
+
+Use **`lab5/`** as the source folder for the updated student package. The
+repository root builds all historical labs; it is not the submission root.
+From the supplied `student_package_updated` directory, run:
+
+```sh
+python3 evaluate.py /path/to/riscv-pipeline-simulator/lab5 sample.s sample.txt --verbose
+```
+
+The updated sample passes with 100% register and counter matches. This is
+sample validation, not a guarantee about the five hidden programs or MOSS.
+The final version includes the supplied `SimEngine` interface and reference
+UI, plain counter lines, final PC at the stopping instruction, and
+`--hazard none|stall|forward`. The simulator and its instruction handlers
+remain in `lab5/`; no submission archive is created by the build.
+
 ## Build
 
 Needs a C11 compiler and `make` (and Python 3 for the test generators).
@@ -61,7 +82,7 @@ and friends. Register names are case-insensitive.
 
 | Check | What it proves |
 |---|---|
-| `golden.sh` | Every figure published in the lab sheets (95 checks: cycles, stalls, flushes, forwards, load-use stalls, mispredicts per program, mode and predictor) |
+| `golden.sh` | 95 checks of lab figures and reconstructed fixtures; three t1 FP expectations are documented adjustments for the final ECALL hazard policy |
 | `labN/compare.sh` (`make test` in a lab) | Every program, under every hazard unit × predictor, leaves the same x/f registers, fcsr and output as the single-cycle reference, and `cycles = retired + 4 + 2·redirects + stalls` holds |
 | `tests/fuzz.py <lab> <n> [seed] [--fp]` | Random, always-terminating programs (dependence chains, load-use, all load/store widths, loops, calls, indirect jumps; with `--fp` all of M and F on special values and every rounding mode) through `compare.sh` |
 | `tests/fpref.py lab5 <n> [seed]` | RV32F results and fflags against an independent exact-rational IEEE model (ties, FLT_MIN boundary, signed-zero cancellation, NaNs) |

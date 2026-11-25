@@ -1,5 +1,10 @@
 # Lab 5 — Floating-Point Arithmetic (RV32F)
 
+> Historical report from before the final evaluator update. Its measured table
+> and saved outputs describe that earlier revision. Use
+> [final_validation.md](final_validation.md) for final submission results and
+> the updated ECALL timing policy.
+
 Raw `--batch` outputs for all four programs under `--hazard forward`, `--hazard stall` and
 `--single-cycle` (fcsr line included) are in `reports/lab5_outputs/`.
 

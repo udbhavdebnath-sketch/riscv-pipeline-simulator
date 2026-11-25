@@ -53,7 +53,17 @@ const HazardUnit hazard_forward = {
     forward_ex_mem_wb,
 };
 
+static int stall_none(const Pipeline *p, const DecodedInstr *d, const ControlSignals *c) {
+    (void)p; (void)d; (void)c;
+    return 0;
+}
+
+static const HazardUnit hazard_none = {
+    "none", "no interlocks or forwarding", stall_none, forward_none,
+};
+
 const HazardUnit *hazard_find(const char *name) {
+    if (strcmp(name, hazard_none.name) == 0) return &hazard_none;
     if (strcmp(name, hazard_stall.name) == 0)   return &hazard_stall;
     if (strcmp(name, hazard_forward.name) == 0) return &hazard_forward;
     return NULL;

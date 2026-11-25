@@ -57,6 +57,8 @@ ControlSignals control_decode(const DecodedInstr *i, const InstructionHandler *h
     c.src1 = c.uses_rs1  ? unify(i->rs1, fl & IF_RS1_FP) : REG_NONE;
     c.src2 = c.uses_rs2  ? unify(i->rs2, fl & IF_RS2_FP) : REG_NONE;
     c.src3 = c.uses_rs3  ? unify(i->rs3, fl & IF_RS3_FP) : REG_NONE;
+    /* ECALL consumes the syscall number and argument just like EX operands. */
+    if (c.is_system) { c.src1 = 17; c.src2 = 10; }
 
     /* The pipeline's own ALU covers RV32I; everything the registry added
      * later (M, F, Zicsr) runs its handler in EX instead. */

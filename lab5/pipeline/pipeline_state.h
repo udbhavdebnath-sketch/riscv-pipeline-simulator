@@ -7,6 +7,7 @@
 #include "isa_registry.h"
 #include "control.h"
 #include "branch_predictor.h"
+#include "sim_engine.h"
 
 /* Faults are carried down the pipe and only become a CPUStatus in WB
  * (precise exceptions). */
@@ -43,6 +44,7 @@ typedef struct {
     int nfwd;                 /* operands forwarded in EX, counted at retire */
     int mispredict;           /* conditional branch whose guess was wrong    */
     uint32_t fcsr_before;     /* fcsr as EX found it, to undo if an older instruction stops the machine */
+    CPUStatus system_status;
     char msg[128];            /* fault text from a handler run in EX         */
 } EXMEM;
 
@@ -50,6 +52,7 @@ typedef struct {
     int valid; int bubble; uint32_t pc; int fault;
     DecodedInstr instr; const InstructionHandler *handler; ControlSignals ctrl;
     uint32_t wb_val; uint32_t fault_addr;
+    CPUStatus system_status;
     int nfwd;
     int mispredict;
     char msg[128];
@@ -62,6 +65,7 @@ typedef struct {
     const struct HazardUnit *hazard;
     const BranchPredictor *bp;
     BPState bps;              /* the predictor's table belongs to the pipeline */
+    int fetch_stopped;
     uint64_t cycles, retired, stalls, forwards;
     uint64_t branches, mispredicts, jal, jalr, redirects, squashed;
 } Pipeline;
@@ -71,5 +75,6 @@ extern int pipeline_trace;   /* --trace: per-cycle stage dump */
 void      pipeline_init (Pipeline *p, const struct HazardUnit *hz, const BranchPredictor *bp);
 CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem);
 void      pipeline_run_batch(Pipeline *p, CPUState *cpu, Memory *mem, uint64_t max_cycles);
+void      pipeline_make_engine(SimEngine *e, Pipeline *p, CPUState *cpu, Memory *mem);
 
 #endif /* PIPELINE_STATE_H */

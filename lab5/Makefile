@@ -16,6 +16,7 @@ SRCS := \
 	core/isa_registry.c \
 	core/decoder.c \
 	core/executor.c \
+	core/sim_engine.c \
 	isa/rv32i_base.c \
 	isa/rv32m.c \
 	isa/zicsr.c \
@@ -54,7 +55,7 @@ memcheck: $(BIN)
 # Diffs every program under every hazard unit and predictor against the
 # single-cycle oracle and checks the cycle identities.
 test: $(BIN)
-	./compare.sh
+	sh ./compare.sh
 
 clean:
 	rm -f $(OBJS) $(OBJS:.o=.d) $(BIN)

@@ -10,6 +10,7 @@ all:
 	@for d in $(LABS); do $(MAKE) -s -C $$d || exit 1; done
 
 test: all
+	python3 tests/final_interface.py
 	./golden.sh
 	@for d in $(LABS); do echo "== $$d make test"; $(MAKE) -s -C $$d test > /dev/null && echo ok || exit 1; done
 	tests/demo/run.sh

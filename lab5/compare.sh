@@ -8,11 +8,11 @@ fail=0
 [ $# -eq 0 ] && set -- tests/*.s
 for f in "$@"; do
   ref=$(./rvsim "$f" --batch --single-cycle 2>&1)
-  r=$(echo "$ref" | grep -E '^(x[0-9]|f[0-9]|fcsr|status)' | sed 's/cycles.*//'); ro=$(echo "$ref" | sed -n '2p')
+  r=$(echo "$ref" | grep -E '^(x[0-9]|f[0-9]|fcsr|pc |status)' | sed 's/cycles.*//'); ro=$(echo "$ref" | sed -n '2p')
   for h in forward stall; do
     for p in not-taken btfn 1bit 2bit; do
       got=$(./rvsim "$f" --batch --hazard $h --predictor $p 2>&1)
-      g=$(echo "$got" | grep -E '^(x[0-9]|f[0-9]|fcsr|status)' | sed 's/cycles.*//'); go=$(echo "$got" | sed -n '2p')
+      g=$(echo "$got" | grep -E '^(x[0-9]|f[0-9]|fcsr|pc |status)' | sed 's/cycles.*//'); go=$(echo "$got" | sed -n '2p')
       v() { echo "$got" | awk -v k="$1" '$1==k{print $3}'; }
       cyc=$(echo "$got" | sed -n 's/.*cycles = //p')
       st="MATCH"; [ "$r" = "$g" ] && [ "$ro" = "$go" ] || st="MISMATCH"

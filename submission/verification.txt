@@ -1,0 +1,26 @@
+PASS sample.txt
+PASS b1_patterns.1bit.out
+PASS b1_patterns.2bit.out
+PASS b1_patterns.btfn.out
+PASS b1_patterns.not-taken.out
+PASS b1_patterns.single-cycle.out
+PASS b2_adversarial.1bit.out
+PASS b2_adversarial.2bit.out
+PASS b2_adversarial.btfn.out
+PASS b2_adversarial.not-taken.out
+PASS b2_adversarial.single-cycle.out
+PASS b3_applied.1bit.out
+PASS b3_applied.2bit.out
+PASS b3_applied.btfn.out
+PASS b3_applied.not-taken.out
+PASS b3_applied.single-cycle.out
+PASS f1_broad.forward.out
+PASS f1_broad.single-cycle.out
+PASS f1_broad.stall.out
+PASS f2_special.forward.out
+PASS f2_special.single-cycle.out
+PASS f3_kernel.forward.out
+PASS f3_kernel.single-cycle.out
+PASS f3_kernel.stall.out
+PASS standalone make test from evaluator-extracted archive
+24/24 supplied final-stage cases passed from ZIP after reference UI replacement

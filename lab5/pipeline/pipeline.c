@@ -134,6 +134,7 @@ static void trace_pc(int valid, uint32_t pc) {
 CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     if (cpu->status != CPU_RUNNING) return cpu->status;
     Pipeline nx = *p;        /* nx = next state; p = current (old) state */
+    nx.cycles++;             /* A fault delivered in WB still consumes a clock. */
 
     /* ---------------- WB ---------------- */
     if (p->mem_wb.valid && p->mem_wb.fault != PF_NONE) {
@@ -156,11 +157,11 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
                      w->instr.raw, w->pc);
         }
         if (w->msg[0]) snprintf(cpu->fault_msg, sizeof(cpu->fault_msg), "%s", w->msg);
+        cpu->pc = w->pc;
         undo_younger_fcsr(p, cpu);
-        *p = nx;                /* the faulting cycle is not counted */
+        *p = nx;
         return cpu->status;
     }
-    nx.cycles++;
     if (!p->mem_wb.valid) {
         if (p->mem_wb.bubble == BUB_STALL) nx.stalls++;
         if (p->mem_wb.bubble == BUB_SQUASH_HEAD) { nx.redirects++; nx.squashed += 2; }
@@ -168,11 +169,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
         const MEMWB *w = &p->mem_wb;
         write_unified(cpu, w->ctrl.dst, w->wb_val);
         if (w->ctrl.is_system) {
-            uint32_t saved = cpu->pc;
-            DecodedInstr in = w->instr;
-            cpu->pc = w->pc;
-            w->handler->execute(cpu, mem, &in);
-            cpu->pc = saved;
+            cpu->status = w->system_status;
         }
         nx.retired++;
         nx.forwards += (uint64_t)w->nfwd;
@@ -181,6 +178,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
         if (w->instr.opcode == OP_JAL)  nx.jal++;
         if (w->instr.opcode == OP_JALR) nx.jalr++;
         if (cpu->status != CPU_RUNNING) {   /* ecall exit: nothing younger may commit */
+            cpu->pc = w->pc;
             undo_younger_fcsr(p, cpu);
             *p = nx;
             return cpu->status;
@@ -196,6 +194,7 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
         o->valid = 1; o->pc = e->pc; o->fault = e->fault; o->instr = e->instr;
         o->handler = e->handler; o->ctrl = e->ctrl; o->wb_val = e->alu_result;
         o->fault_addr = e->fault_addr; o->nfwd = e->nfwd; o->mispredict = e->mispredict;
+        o->system_status = e->system_status;
         memcpy(o->msg, e->msg, sizeof(o->msg));
         if (e->fault == PF_NONE) {
             uint32_t a = e->alu_result;
@@ -227,16 +226,18 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
      * squashed and fetch restarts at the right address next cycle: 2 cycles.
      * The predictor learns only here, where `taken` is a fact. */
     int redirect = 0;
+    int stop = nx.mem_wb.valid && nx.mem_wb.fault != PF_NONE;
     uint32_t redirect_pc = 0;
     nx.ex_mem.valid = 0;
     nx.ex_mem.bubble = p->id_ex.bubble;
-    if (p->id_ex.valid) {
+    if (p->id_ex.valid && !stop) {
         const IDEX *d = &p->id_ex;
         EXMEM *o = &nx.ex_mem;
         o->valid = 1; o->pc = d->pc; o->fault = d->fault; o->instr = d->instr;
         o->handler = d->handler; o->ctrl = d->ctrl;
         o->alu_result = 0; o->fault_addr = 0; o->nfwd = 0; o->mispredict = 0;
         o->fcsr_before = cpu->fcsr; o->msg[0] = '\0';
+        o->system_status = CPU_RUNNING;
         if (d->fault == PF_NONE) {
             uint32_t a = operand(p, d->ctrl.src1, d->rs1_val, &o->nfwd);
             uint32_t b = operand(p, d->ctrl.src2, d->rs2_val, &o->nfwd);
@@ -254,6 +255,16 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
                 next = (d->instr.opcode == OP_JAL)
                      ? d->pc + (uint32_t)d->instr.imm
                      : (a + (uint32_t)d->instr.imm) & ~1u;
+            } else if (d->ctrl.is_system) {
+                CPUState scratch = *cpu;
+                DecodedInstr in = d->instr;
+                scratch.pc = d->pc;
+                scratch.next_pc = d->pc + 4;
+                cpu_write_reg(&scratch, 17, a);
+                cpu_write_reg(&scratch, 10, b);
+                d->handler->execute(&scratch, mem, &in);
+                o->system_status = scratch.status;
+                stop = scratch.status != CPU_RUNNING;
             } else if (d->ctrl.exec_in_ex) {
                 execute_handler(d, o, cpu, mem, a, b, c);
             } else if (d->ctrl.mem_read || d->ctrl.mem_write) {
@@ -266,13 +277,16 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
                 redirect_pc = next;
             }
         }
+        if (o->fault != PF_NONE) stop = 1;
     }
 
     /* ---------------- ID ---------------- */
     int stall = 0;
     nx.id_ex.valid = 0;
     nx.id_ex.bubble = p->if_id.bubble;
-    if (redirect) {
+    if (stop || p->fetch_stopped) {
+        nx.id_ex.bubble = BUB_FILL;
+    } else if (redirect) {
         nx.id_ex.bubble = BUB_SQUASH_HEAD;  /* kill the instruction in ID */
     } else if (p->if_id.valid) {
         IDEX *o = &nx.id_ex;
@@ -303,7 +317,11 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
 
     /* ---------------- IF ---------------- */
     uint32_t fetch_pc = cpu->pc;
-    if (stall) {
+    if (stop || p->fetch_stopped) {
+        nx.if_id.valid = 0;
+        nx.if_id.bubble = BUB_FILL;
+        nx.fetch_stopped = 1;
+    } else if (stall) {
         nx.if_id = p->if_id;              /* freeze IF/ID and the fetch PC */
     } else {
         uint32_t raw = 0;
@@ -335,27 +353,57 @@ CPUStatus pipeline_cycle(Pipeline *p, CPUState *cpu, Memory *mem) {
     return cpu->status;
 }
 
+/* Adapter for the supplied UI: the pipeline owns timing and statistics. */
+static CPUStatus engine_step(SimEngine *e) {
+    Pipeline *p = e->ctx;
+    CPUStatus status = pipeline_cycle(p, e->cpu, e->mem);
+    e->cpu->cycle_count = p->cycles;
+    return status;
+}
+
+static int engine_views(const SimEngine *e, PipelineStageView *out, int max) {
+    const Pipeline *p = e->ctx;
+    if (max < 5) return 0;
+    out[0] = (PipelineStageView){"IF", e->cpu->pc, p->fetch_stopped || e->cpu->status != CPU_RUNNING};
+    out[1] = (PipelineStageView){"ID", p->if_id.pc, !p->if_id.valid};
+    out[2] = (PipelineStageView){"EX", p->id_ex.pc, !p->id_ex.valid};
+    out[3] = (PipelineStageView){"MEM", p->ex_mem.pc, !p->ex_mem.valid};
+    out[4] = (PipelineStageView){"WB", p->mem_wb.pc, !p->mem_wb.valid};
+    return 5;
+}
+
+static void engine_stats(const SimEngine *e, char *buf, size_t size) {
+    const Pipeline *p = e->ctx;
+    snprintf(buf, size,
+        "pipeline        = 5-stage, hazard unit '%s', predictor '%s'\n"
+        "retired         = %llu\n"
+        "CPI             = %.3f\n"
+        "stalls          = %llu\n"
+        "forwards        = %llu\n"
+        "branches        = %llu\n"
+        "mispredicts     = %llu\n"
+        "accuracy        = %.1f%%\n"
+        "jal             = %llu\n"
+        "jalr            = %llu\n"
+        "redirects       = %llu\n"
+        "squashed        = %llu\n",
+        p->hazard->name, p->bp->name,
+        (unsigned long long)p->retired,
+        p->retired ? (double)p->cycles / (double)p->retired : 0.0,
+        (unsigned long long)p->stalls, (unsigned long long)p->forwards,
+        (unsigned long long)p->branches, (unsigned long long)p->mispredicts,
+        p->branches ? 100.0 * (double)(p->branches - p->mispredicts) / (double)p->branches : 100.0,
+        (unsigned long long)p->jal, (unsigned long long)p->jalr,
+        (unsigned long long)p->redirects, (unsigned long long)p->squashed);
+}
+
+void pipeline_make_engine(SimEngine *e, Pipeline *p, CPUState *cpu, Memory *mem) {
+    *e = (SimEngine){"5-stage pipeline", cpu, mem, p,
+                    engine_step, engine_views, engine_stats};
+}
+
 void pipeline_run_batch(Pipeline *p, CPUState *cpu, Memory *mem, uint64_t max_cycles) {
-    while (cpu->status == CPU_RUNNING && p->cycles < max_cycles) {
-        pipeline_cycle(p, cpu, mem);
-    }
-    cpu->cycle_count = p->cycles;
-    printf("\n");
-    print_registers(cpu);
-    print_status(cpu);
-    if (cpu->status == CPU_RUNNING) {
-        printf("  -> stopped: reached max cycle limit (%llu)\n", (unsigned long long)max_cycles);
-    }
-    printf("pipeline        = 5-stage, hazard unit '%s', predictor '%s'\n", p->hazard->name, p->bp->name);
-    printf("retired         = %llu\n", (unsigned long long)p->retired);
-    printf("CPI             = %.3f\n", p->retired ? (double)p->cycles / (double)p->retired : 0.0);
-    printf("stalls          = %llu\n", (unsigned long long)p->stalls);
-    printf("forwards        = %llu\n", (unsigned long long)p->forwards);
-    printf("branches        = %-9llu conditional branches executed\n", (unsigned long long)p->branches);
-    printf("mispredicts     = %-9llu ... of which the guess was wrong\n", (unsigned long long)p->mispredicts);
-    printf("accuracy        = %.1f%%\n", p->branches ? 100.0 * (double)(p->branches - p->mispredicts) / (double)p->branches : 100.0);
-    printf("jal             = %-9llu redirected in IF: free\n", (unsigned long long)p->jal);
-    printf("jalr            = %-9llu never predicted: 2 cycles each\n", (unsigned long long)p->jalr);
-    printf("redirects       = %-9llu mispredicts + jalr\n", (unsigned long long)p->redirects);
-    printf("squashed        = %-9llu instructions thrown away (2 per redirect)\n", (unsigned long long)p->squashed);
+    SimEngine e;
+    pipeline_make_engine(&e, p, cpu, mem);
+    run_batch(&e, max_cycles, pipeline_trace);
 }

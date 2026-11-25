@@ -53,9 +53,15 @@ check lab4 t4_calls.s --batch redirects 20
 for row in "t1_fp_arith.s 36 41 1" "t2_conversions.s 109 113 0" "t3_special_values.s 72 76 0" "t4_fp_program.s 133 159 14"; do
   set -- $row; check lab5 $1 --batch retired $2; check lab5 $1 --batch cycles $3; check lab5 $1 --batch stalls $4
 done
-check lab5 t1_fp_arith.s --batch forwards 11
-check lab5 t1_fp_arith.s "--batch --hazard stall" cycles 56
-check lab5 t1_fp_arith.s "--batch --hazard stall" stalls 16
+# This locally reconstructed fixture ends with writes to a0/a7 immediately
+# before ECALL. The updated reference treats both as EX sources, adding two
+# forwards or two interlock cycles. The sheet's original 11 / 56 / 16 figures
+# cannot be used for this fixture with the updated ECALL timing policy.
+# tests/final_interface.py independently checks these syscall dependencies;
+# the supplied f1_broad/f3_kernel goldens also require the interlock.
+check lab5 t1_fp_arith.s --batch forwards 13
+check lab5 t1_fp_arith.s "--batch --hazard stall" cycles 58
+check lab5 t1_fp_arith.s "--batch --hazard stall" stalls 18
 check lab5 t4_fp_program.s --batch redirects 4
 check lab5 t4_fp_program.s --batch output 12000014141000
 
